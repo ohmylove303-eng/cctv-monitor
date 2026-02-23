@@ -141,6 +141,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
     const mapRef = useRef<import('maplibre-gl').Map | null>(null);
     const markersRef = useRef<import('maplibre-gl').Marker[]>([]);  // ← 핵심 fix
     const mapReadyRef = useRef(false);
+    const refreshMarkersRef = useRef<() => void>(() => { });  // ← 항상 최신 함수 참조
 
     const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
     const [showDrone, setShowDrone] = useState(true);
@@ -196,6 +197,9 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         });
     }, [items, onSelect]);
 
+    // refreshMarkersRef를 항상 최신으로 유지 → load 클로저에서 stale 방지
+    refreshMarkersRef.current = refreshMarkers;
+
     // ─── 지도 초기화 (한 번만) ────────────────────────────────────────────────
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return;
@@ -228,9 +232,16 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
                 });
                 map.on('click', () => setDroneInfo(null));
 
-                refreshMarkers();
+                refreshMarkersRef.current();
             });
         });
+
+        // Fallback: 지도가 이미 로드된 경우 바로 실행
+        setTimeout(() => {
+            if (mapReadyRef.current && markersRef.current.length === 0) {
+                refreshMarkersRef.current();
+            }
+        }, 2500);
 
         return () => {
             markersRef.current.forEach(m => m.remove());
