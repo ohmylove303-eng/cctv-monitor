@@ -83,30 +83,46 @@ function makeDroneGeoJson(features: typeof DRONE_SOURCES['drone-no-fly']['featur
 }
 
 // ─── MapLibre 스타일 빌드 ────────────────────────────────────────────────────
-function buildStyle(s: MapStyle) {
+// 다크: OpenFreeMap 벡터 타일 (한국어 라벨·행정구역·교차로 완전 지원)
+// 위성: ESRI 위성 래스터
+// 하이브리드: ESRI 위성 + OSM 라벨 오버레이
+function buildStyle(s: MapStyle): string | object {
     const SAT = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
     const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+    if (s === 'dark') {
+        // OpenFreeMap dark style URL → 한국어 도로명·행정구역·교차로 자동 포함
+        return 'https://tiles.openfreemap.org/styles/dark';
+    }
+
+    if (s === 'satellite') {
+        return {
+            version: 8,
+            sources: {
+                satellite: { type: 'raster', tiles: [SAT], tileSize: 256 },
+            },
+            layers: [
+                { id: 'bg', type: 'background', paint: { 'background-color': '#000' } },
+                { id: 'sat', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 0.97 } },
+            ],
+        };
+    }
+
+    // hybrid: 위성 + OSM 라벨 오버레이 (행정구역·교차로 보임)
     return {
         version: 8,
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources: {
-            osm: { type: 'raster', tiles: [OSM], tileSize: 256 },
             satellite: { type: 'raster', tiles: [SAT], tileSize: 256 },
+            osmlabels: { type: 'raster', tiles: [OSM], tileSize: 256 },
         },
         layers: [
-            { id: 'bg', type: 'background', paint: { 'background-color': '#060d20' } },
-            ...(s === 'dark' ? [{
-                id: 'base', type: 'raster' as const, source: 'osm',
-                paint: { 'raster-opacity': 0.13, 'raster-saturation': -1 }
-            }] : []),
-            ...(s === 'satellite' ? [{
-                id: 'base', type: 'raster' as const, source: 'satellite',
-                paint: { 'raster-opacity': 0.95 }
-            }] : []),
-            ...(s === 'hybrid' ? [
-                { id: 'base', type: 'raster' as const, source: 'satellite', paint: { 'raster-opacity': 0.88 } },
-                { id: 'overlay', type: 'raster' as const, source: 'osm', paint: { 'raster-opacity': 0.28, 'raster-saturation': -0.4 } },
-            ] : []),
+            { id: 'bg', type: 'background', paint: { 'background-color': '#1a1a2e' } },
+            { id: 'sat', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 0.87 } },
+            {
+                id: 'osm-lbl', type: 'raster', source: 'osmlabels',
+                paint: { 'raster-opacity': 0.55, 'raster-saturation': -0.3, 'raster-contrast': 0.2 }
+            },
         ],
     };
 }
@@ -262,11 +278,14 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
-        map.setStyle(buildStyle(mapStyle) as unknown as import('maplibre-gl').StyleSpecification);
-        map.once('styledata', () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map.setStyle(buildStyle(mapStyle) as any);
+        // OpenFreeMap URL 스타일은 'style.load' 이벤트 사용
+        const onStyleLoad = () => {
             addDroneLayers(map);
-            refreshMarkers();
-        });
+            refreshMarkersRef.current();
+        };
+        map.once('style.load', onStyleLoad);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapStyle]);
 
