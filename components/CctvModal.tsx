@@ -83,36 +83,71 @@ export default function CctvModal({ cctv, onClose }: Props) {
 
                     {/* 영상 뷰어 */}
                     <div style={{
-                        background: '#000', aspectRatio: '16/9', position: 'relative',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        background: '#000814', aspectRatio: '16/9', position: 'relative',
+                        overflow: 'hidden',
                     }}>
+                        {/* 스캔라인 오버레이 */}
+                        <div style={{
+                            position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none',
+                            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px)',
+                        }} />
+
                         {cctv.streamUrl ? (
                             <>
-                                <iframe src={cctv.streamUrl} style={{ width: '100%', height: '100%', border: 'none' }}
-                                    allow="autoplay; fullscreen" title={cctv.name} />
+                                <iframe
+                                    src={cctv.streamUrl}
+                                    style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    allowFullScreen
+                                    title={cctv.name}
+                                />
                                 <div style={{
-                                    position: 'absolute', top: 8, left: 8,
+                                    position: 'absolute', top: 9, left: 9, zIndex: 10,
                                     background: '#ef4444', color: 'white', fontSize: 9,
-                                    fontWeight: 800, padding: '2px 8px', borderRadius: 4,
-                                    letterSpacing: '0.1em'
+                                    fontWeight: 900, padding: '2px 8px', borderRadius: 4,
+                                    letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: 5,
+                                    boxShadow: '0 0 10px rgba(239,68,68,0.55)',
                                 }}>
-                                    ● LIVE
+                                    <span style={{
+                                        width: 6, height: 6, borderRadius: '50%',
+                                        background: 'white', animation: 'pulse 1s ease-in-out infinite'
+                                    }} />
+                                    LIVE
+                                </div>
+                                <div style={{
+                                    position: 'absolute', bottom: 9, right: 9, zIndex: 10,
+                                    background: 'rgba(0,0,0,0.65)', color: '#475569',
+                                    fontSize: 9, fontFamily: 'monospace',
+                                    padding: '2px 7px', borderRadius: 3,
+                                }}>
+                                    {cctv.id}
                                 </div>
                             </>
                         ) : (
-                            <div style={{ textAlign: 'center', color: '#334155' }}>
+                            <div style={{
+                                display: 'flex', flexDirection: 'column',
+                                alignItems: 'center', justifyContent: 'center',
+                                height: '100%', position: 'relative', zIndex: 6,
+                                padding: '0 20px',
+                            }}>
                                 <div style={{
-                                    fontSize: 36, marginBottom: 8,
-                                    backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 2px,
-                    rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px)`,
-                                    position: 'absolute', inset: 0
-                                }} />
-                                <div style={{ position: 'relative', zIndex: 1 }}>
-                                    <div style={{ fontSize: 36, marginBottom: 8 }}>{cfg.icon}</div>
-                                    <div style={{ fontSize: 12, color: '#475569' }}>스트림 미연결</div>
-                                    <div style={{ fontSize: 10, marginTop: 4, color: '#334155' }}>
-                                        streamUrl 필드에 HLS/YouTube 주소 입력
-                                    </div>
+                                    fontSize: 38, marginBottom: 10,
+                                    filter: 'grayscale(1) opacity(0.25)'
+                                }}>{cfg.icon}</div>
+                                <div style={{
+                                    fontSize: 13, color: '#334155',
+                                    fontWeight: 700, marginBottom: 5
+                                }}>
+                                    스트림 미연결
+                                </div>
+                                <div style={{
+                                    fontSize: 10, color: '#1e293b', textAlign: 'center',
+                                    lineHeight: 1.8, background: 'rgba(255,255,255,0.02)',
+                                    border: '1px solid rgba(255,255,255,0.04)',
+                                    borderRadius: 6, padding: '8px 12px',
+                                }}>
+                                    RTSP → HLS 변환 후 streamUrl 입력<br />
+                                    또는 YouTube Live 임베드 URL 사용
                                 </div>
                             </div>
                         )}

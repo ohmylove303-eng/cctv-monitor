@@ -1,11 +1,14 @@
 import { CctvItem } from '@/types/cctv';
 
+const YT = (id: string) =>
+    `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&rel=0&modestbranding=1`;
+
 export const incheonCctv: CctvItem[] = [
     // ── 방범 CCTV ─────────────────────────────────────────────────────────────
     {
         id: 'IC-CR-001', name: '부평구청 방범 CCTV', type: 'crime', status: '정상',
         region: '인천', district: '부평구', address: '인천 부평구 부평대로 168',
-        operator: '부평구청 안전관리과', streamUrl: '', resolution: '4K UHD', installedYear: 2023,
+        operator: '부평구청 안전관리과', streamUrl: YT('XiL5PEoEmx4'), resolution: '4K UHD', installedYear: 2023,
         lat: 37.4960, lng: 126.7219,
     },
     {
@@ -23,7 +26,7 @@ export const incheonCctv: CctvItem[] = [
     {
         id: 'IC-CR-004', name: '송도국제도시 방범 CCTV', type: 'crime', status: '정상',
         region: '인천', district: '연수구', address: '인천 연수구 송도동 국제대로',
-        operator: '연수구청 안전관리과', streamUrl: '', resolution: '4K UHD', installedYear: 2023,
+        operator: '연수구청 안전관리과', streamUrl: YT('bqrDKBdx8Bo'), resolution: '4K UHD', installedYear: 2023,
         lat: 37.3894, lng: 126.6390,
     },
     {
@@ -79,7 +82,7 @@ export const incheonCctv: CctvItem[] = [
     {
         id: 'IC-FI-005', name: '인천공항 소방 CCTV', type: 'fire', status: '정상',
         region: '인천', district: '중구', address: '인천 중구 공항로 424',
-        operator: '인천국제공항공사 소방대', streamUrl: '', resolution: '4K UHD', installedYear: 2023,
+        operator: '인천국제공항공사 소방대', streamUrl: YT('rGvblMlXaP0'), resolution: '4K UHD', installedYear: 2023,
         lat: 37.4490, lng: 126.4510,
     },
 
@@ -87,7 +90,7 @@ export const incheonCctv: CctvItem[] = [
     {
         id: 'IC-TR-001', name: '인천대교 교통 CCTV', type: 'traffic', status: '정상',
         region: '인천', district: '중구', address: '인천 중구 인천대교 진입로',
-        operator: '한국도로공사', streamUrl: '', resolution: '4K UHD', installedYear: 2022,
+        operator: '한국도로공사', streamUrl: YT('WiZ47KTkyTs'), resolution: '4K UHD', installedYear: 2022,
         lat: 37.4210, lng: 126.5210,
     },
     {
@@ -99,7 +102,7 @@ export const incheonCctv: CctvItem[] = [
     {
         id: 'IC-TR-003', name: '부평역 교차로 교통 CCTV', type: 'traffic', status: '정상',
         region: '인천', district: '부평구', address: '인천 부평구 부평대로 교차로',
-        operator: '인천시 교통정보센터', streamUrl: '', resolution: '2K QHD', installedYear: 2021,
+        operator: '인천시 교통정보센터', streamUrl: YT('4Iu3N4JXFLE'), resolution: '2K QHD', installedYear: 2021,
         lat: 37.4888, lng: 126.7232,
     },
     {
