@@ -1,92 +1,187 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 :root {
   --bg-base: #020617;
-  --bg-surface: #080e20;
+  --bg-surface: #060d20;
   --bg-elevated: #0d1630;
-  --border: rgba(255, 255, 255, 0.07);
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #475569;
-  --accent-blue: #3b82f6;
-  --accent-green: #22c55e;
-  --accent-amber: #f59e0b;
-  --accent-red: #ef4444;
+  --border-glass: rgba(255, 255, 255, 0.07);
+  --neon-blue: #40c4ff;
+  --neon-green: #00e676;
+  --neon-amber: #ffb300;
+  --neon-red: #ff3333;
+  --neon-purple: #818cf8;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   width: 100%;
   margin: 0;
   padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--text-primary);
+  color: #f1f5f9;
   background: var(--bg-base);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
 }
 
-/* MapLibre overrides */
-.maplibregl-canvas-container,
-.maplibregl-canvas {
-  border-radius: 0 !important;
+/* ── Glassmorphism panel ── */
+.glass-panel {
+  background: rgba(8, 18, 44, 0.82);
+  border: 1px solid var(--border-glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.badge-blue {
+  color: var(--neon-blue);
+  background: rgba(64, 196, 255, 0.1);
+  border-color: rgba(64, 196, 255, 0.25);
+}
+
+.badge-green {
+  color: var(--neon-green);
+  background: rgba(0, 230, 118, 0.1);
+  border-color: rgba(0, 230, 118, 0.25);
+}
+
+.badge-amber {
+  color: var(--neon-amber);
+  background: rgba(255, 179, 0, 0.1);
+  border-color: rgba(255, 179, 0, 0.25);
+}
+
+.badge-red {
+  color: var(--neon-red);
+  background: rgba(255, 51, 51, 0.1);
+  border-color: rgba(255, 51, 51, 0.25);
+}
+
+.badge-purple {
+  color: var(--neon-purple);
+  background: rgba(129, 140, 248, 0.1);
+  border-color: rgba(129, 140, 248, 0.25);
+}
+
+/* ── Buttons ── */
+.btn-neon {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(64, 196, 255, 0.3);
+  background: rgba(64, 196, 255, 0.08);
+  color: var(--neon-blue);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+
+.btn-neon:hover {
+  background: rgba(64, 196, 255, 0.16);
+  border-color: rgba(64, 196, 255, 0.55);
+  box-shadow: 0 0 10px rgba(64, 196, 255, 0.2);
+}
+
+.btn-forensic {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--neon-purple);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+
+.btn-forensic:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(129, 140, 248, 0.7);
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.25);
+}
+
+/* ── MapLibre overrides ── */
 .maplibregl-ctrl-attrib {
   display: none !important;
 }
 
-/* Scrollbar */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar {
   width: 4px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
 
-/* Animations */
+/* ── Animations ── */
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.15); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.55;
+    transform: scale(1.15);
+  }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
 }
 
-@keyframes scanline {
-  from { transform: translateY(-100%); }
-  to { transform: translateY(100%); }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-/* Scanline effect for live feeds */
-.scanline {
-  position: relative;
-  overflow: hidden;
-}
-.scanline::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: rgba(59, 130, 246, 0.3);
-  animation: scanline 3s linear infinite;
-  pointer-events: none;
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
