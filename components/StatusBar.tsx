@@ -54,7 +54,7 @@ export default function StatusBar({ allItems }: Props) {
                 </div>
                 <div style={{ width: 1, height: 32, background: 'rgba(64,196,255,0.15)', margin: '0 4px' }} />
                 <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, letterSpacing: '0.06em' }}>
-                    ● LIVE 실시간 감시 중
+                    ● LIVE 실시간 모니터 중
                 </span>
             </div>
 

@@ -36,6 +36,24 @@ export default function Dashboard() {
     const [rightTab, setRightTab] = useState<RightTab>('events');
     const [itsLoading, setItsLoading] = useState(true);
     const [itsCameras, setItsCameras] = useState<CctvItem[]>([]);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const mapWrapperRef = useRef<HTMLDivElement>(null);
+
+    const toggleFullscreen = useCallback(() => {
+        const el = mapWrapperRef.current;
+        if (!el) return;
+        if (!document.fullscreenElement) {
+            el.requestFullscreen?.();
+        } else {
+            document.exitFullscreen?.();
+        }
+    }, []);
+
+    useEffect(() => {
+        const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+        document.addEventListener('fullscreenchange', onFsChange);
+        return () => document.removeEventListener('fullscreenchange', onFsChange);
+    }, []);
 
     // ─── 실제 Gimpo ITS 카메라 로드 ─────────────────────────────────────────
     useEffect(() => {
@@ -112,9 +130,10 @@ export default function Dashboard() {
                 />
 
                 {/* 중앙: 지도 */}
-                <div className="glass-panel" style={{
-                    borderRadius: 12, overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column', minHeight: 0
+                <div ref={mapWrapperRef} className="glass-panel" style={{
+                    borderRadius: isFullscreen ? 0 : 12, overflow: 'hidden',
+                    display: 'flex', flexDirection: 'column', minHeight: 0,
+                    ...(isFullscreen ? { position: 'fixed', inset: 0, zIndex: 9999, borderRadius: 0 } : {})
                 }}>
 
                     {/* 툴바 */}
@@ -128,6 +147,20 @@ export default function Dashboard() {
                             <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.520, 126.680, 10)}>⊙ 전체</button>
                             <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.615, 126.716, 12)}>✈ 김포</button>
                             <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.456, 126.705, 11)}>⚓ 인천</button>
+                            {/* 전체화면 버튼 */}
+                            <button
+                                onClick={toggleFullscreen}
+                                title={isFullscreen ? '전체화면 종료' : '지도 전체화면'}
+                                style={{
+                                    padding: '4px 9px', borderRadius: 5, fontSize: 11,
+                                    cursor: 'pointer', fontWeight: 700,
+                                    background: isFullscreen ? 'rgba(239,68,68,0.15)' : 'rgba(64,196,255,0.1)',
+                                    border: `1px solid ${isFullscreen ? 'rgba(239,68,68,0.4)' : 'rgba(64,196,255,0.3)'}`,
+                                    color: isFullscreen ? '#f87171' : '#40c4ff',
+                                    transition: 'all 0.15s',
+                                }}>
+                                {isFullscreen ? '✕ 전체화면 종료' : '⛶ 전체화면'}
+                            </button>
                             {([
                                 { key: 'crime' as const, label: '📷방범', color: '#60a5fa' },
                                 { key: 'fire' as const, label: '🚒소방', color: '#f87171' },

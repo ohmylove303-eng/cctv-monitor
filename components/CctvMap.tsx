@@ -129,23 +129,29 @@ function buildStyle(s: MapStyle): string | object {
 
 // ─── 드론 레이어 맵에 추가 ──────────────────────────────────────────────────
 function addDroneLayers(map: import('maplibre-gl').Map) {
-    if (map.getSource('drone-no-fly')) return; // 이미 추가됨
+    // 이미 소스가 있으면 제거 후 재추가 (스타일 변경 후 소스가 사라지는 케이스 대응)
+    ['drone-no-fly', 'drone-restricted', 'drone-allowed'].forEach(id => {
+        if (map.getLayer(`${id}-fill`)) map.removeLayer(`${id}-fill`);
+        if (map.getLayer(`${id}-stroke`)) map.removeLayer(`${id}-stroke`);
+        if (map.getSource(id)) map.removeSource(id);
+    });
 
-    const order: (keyof typeof DRONE_SOURCES)[] = ['drone-restricted', 'drone-no-fly', 'drone-allowed'];
+    const order: (keyof typeof DRONE_SOURCES)[] = ['drone-allowed', 'drone-restricted', 'drone-no-fly'];
     order.forEach(srcId => {
         const zone = srcId.replace('drone-', '') as keyof typeof ZONE_CFG;
         const cfg = ZONE_CFG[zone];
         map.addSource(srcId, { type: 'geojson', data: makeDroneGeoJson(DRONE_SOURCES[srcId].features) });
         map.addLayer({
             id: `${srcId}-fill`, type: 'fill', source: srcId,
-            paint: { 'fill-color': cfg.fill, 'fill-opacity': cfg.fillOp }
+            paint: { 'fill-color': cfg.fill, 'fill-opacity': 0.35 }  // 가시성 증가
         });
         map.addLayer({
             id: `${srcId}-stroke`, type: 'line', source: srcId,
             paint: {
-                'line-color': cfg.stroke, 'line-width': srcId === 'drone-no-fly' ? 2 : 1.5,
+                'line-color': cfg.stroke,
+                'line-width': srcId === 'drone-no-fly' ? 3 : 2,
                 'line-dasharray': srcId !== 'drone-no-fly' ? [4, 3] : [1],
-                'line-opacity': cfg.strokeOp
+                'line-opacity': 0.95,
             }
         });
     });
