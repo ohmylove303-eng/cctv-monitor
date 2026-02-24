@@ -17,6 +17,51 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
   const [errorMsg, setErrorMsg] = useState('');
   const [retryCount, setRetryCount] = useState(0);
 
+  // ── YouTube embed URL → iframe 렌더링 (hls.js 사용 불가) ──────────
+  const isYouTube = streamUrl.includes('youtube.com/embed') || streamUrl.includes('youtu.be');
+  if (isYouTube) {
+    return (
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000814', overflow: 'hidden' }}>
+        {/* 스캔라인 */}
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none',
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px)'
+        }} />
+        <iframe
+          src={streamUrl}
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          title={title ?? cctvId ?? 'CCTV'}
+        />
+        {/* LIVE 배지 */}
+        <div style={{
+          position: 'absolute', top: 9, left: 9, zIndex: 10,
+          background: '#ef4444', color: 'white', fontSize: 9, fontWeight: 900,
+          padding: '2px 8px', borderRadius: 4, letterSpacing: '0.12em',
+          display: 'flex', alignItems: 'center', gap: 5,
+          boxShadow: '0 0 10px rgba(239,68,68,0.55)'
+        }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%', background: 'white',
+            animation: 'pulse 1s ease-in-out infinite'
+          }} />
+          LIVE
+        </div>
+        {cctvId && (
+          <div style={{
+            position: 'absolute', bottom: 9, right: 9, zIndex: 10,
+            background: 'rgba(0,0,0,0.65)', color: '#475569',
+            fontSize: 9, fontFamily: 'monospace', padding: '2px 7px', borderRadius: 3
+          }}>
+            {cctvId}
+          </div>
+        )}
+        <style>{`@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }`}</style>
+      </div>
+    );
+  }
+
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !streamUrl) {

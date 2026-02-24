@@ -13,7 +13,7 @@ const STATUS_COLOR: Record<string, string> = {
   '정상': '#22c55e', '점검중': '#f59e0b', '고장': '#ef4444',
 };
 const REGION_COLOR: Record<string, string> = {
-  '김포': '#10b981', '인체': '#06b6d4',
+  '김포': '#10b981', '인천': '#06b6d4',
 };
 
 interface Props { cctv: CctvItem; onClose: () => void; }
