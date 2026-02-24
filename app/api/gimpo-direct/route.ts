@@ -5,82 +5,86 @@ import { NextResponse } from 'next/server';
 const SAMPLE_KEY = '72c03919776b2db8e4dd25aaebc1ae7f37bcf49';
 const BASE = 'https://openapigits.gg.go.kr/api/rest/getCctvKtictInfo';
 
+/** HTML 엔티티 디코딩 */
+function decodeHtmlEntities(str: string): string {
+    return str
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#xD;/g, '')
+        .replace(/&#x[0-9A-Fa-f]+;/g, '')
+        .replace(/&#\d+;/g, '');
+}
+
+/** XML 태그 추출 */
+function extractTag(tag: string, block: string): string {
+    const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`));
+    return m ? m[1].trim() : '';
+}
+
 export async function GET() {
     const key = process.env.GG_CCTV_KEY || SAMPLE_KEY;
 
     try {
         const params = new URLSearchParams({
             serviceKey: key,
-            type: 'json',
-            getType: 'json',
-            g_cctvType: '2',      // 2 = MP4/HLS 동영상
+            g_cctvType: '2',
             g_MinX: '126.50',
             g_MaxX: '126.85',
             g_MinY: '37.50',
-            g_MaxY: '37.75',  // 김포시 좌표 범위
+            g_MaxY: '37.75',
         });
 
         const res = await fetch(`${BASE}?${params}`, {
-            headers: { Accept: 'application/json, */*' },
-            next: { revalidate: 300 },
+            cache: 'no-store',
         });
 
         if (!res.ok) {
             return NextResponse.json({ cameras: [], error: `API ${res.status}`, source: 'GG_KTICT' });
         }
 
-        const text = await res.text();
+        const rawText = await res.text();
+
+        // 이중 인코딩: 외부 XML의 <msgBody> 내부에 HTML 엔티티로 인코딩된 XML이 들어있음
+        // → msgBody 블록 추출 → HTML 엔티티 디코딩 → 내부 XML 파싱
+        const bodyMatch = rawText.match(/<msgBody>([\s\S]*?)<\/msgBody>/);
+        const innerXml = bodyMatch
+            ? decodeHtmlEntities(bodyMatch[1])
+            : decodeHtmlEntities(rawText);
+
+        // <data> 블록들 파싱
+        const blocks = innerXml.match(/<data>([\s\S]*?)<\/data>/g) ?? [];
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let items: any[] = [];
-
-        if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
-            // ─ JSON 응답 ─
-            const data = JSON.parse(text);
-            const raw = data?.body?.items?.item ?? data?.response?.body?.items?.item ?? [];
-            items = Array.isArray(raw) ? raw : [raw];
-
-        } else if (text.includes('<item>')) {
-            // ─ XML 응답 — 정규식 파싱 ─
-            const extract = (tag: string, block: string) => {
-                const m = block.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-                return m ? m[1].trim() : '';
-            };
-            const blocks = text.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
-            items = blocks.map(block => ({
-                cctvname: extract('cctvname', block),
-                cctvurl: extract('cctvurl', block),
-                cctvformat: extract('cctvformat', block),
-                coordy: extract('coordy', block),
-                coordx: extract('coordx', block),
-            }));
-
-        } else {
-            // ─ 예상 외 응답 ─
-            return NextResponse.json({
-                cameras: [], source: 'GG_KTICT',
-                error: 'Unexpected API response: ' + text.slice(0, 300),
-            });
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cameras = items.filter((c: any) => c?.coordy && c?.coordx).map((c: any) => ({
-            id: c.cctvname ?? c.cctvid ?? '',
-            name: c.cctvname ?? '',
-            address: c.cctvname ?? '',
-            lat: parseFloat(c.coordy),
-            lng: parseFloat(c.coordx),
-            hlsUrl: (c.cctvurl ?? '').trim(),
-            format: c.cctvformat ?? 'HLS',
-            source: 'GG_KTICT',
-        })).filter((c: { lat: number; lng: number }) => c.lat > 37 && c.lng > 126);
+        const cameras: any[] = blocks
+            .map(block => {
+                const lat = parseFloat(extractTag('coordy', block));
+                const lng = parseFloat(extractTag('coordx', block));
+                const url = extractTag('cctvurl', block);
+                const name = extractTag('cctvname', block) || extractTag('cctvtitle', block) || '';
+                if (!lat || !lng || !url) return null;
+                return {
+                    id: name || url.slice(-16),
+                    name: name || `김포 교통 CCTV`,
+                    address: name || '',
+                    lat,
+                    lng,
+                    hlsUrl: url,               // MP4 or HLS URL from gitsview.gg.go.kr
+                    format: extractTag('cctvformat', block) || 'MP4',
+                    source: 'GG_KTICT',
+                };
+            })
+            .filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
+            .filter((c) => c.lat > 37 && c.lng > 126);
 
         return NextResponse.json({
-            success: true,
+            success: cameras.length > 0,
             count: cameras.length,
             cameras,
             source: 'GG_KTICT',
             fetchedAt: new Date().toISOString(),
+            // debug: rawText.slice(0, 500),  // 디버그 시 주석 해제
         });
 
     } catch (err) {
