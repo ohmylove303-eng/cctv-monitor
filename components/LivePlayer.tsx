@@ -17,8 +17,14 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
   const [errorMsg, setErrorMsg] = useState('');
   const [retryCount, setRetryCount] = useState(0);
 
-  // ── YouTube embed URL → iframe 렌더링 (hls.js 사용 불가) ──────────
+  // ── URL 타입 판별 ───────────────────────────────────────────────────────────
   const isYouTube = streamUrl.includes('youtube.com/embed') || streamUrl.includes('youtu.be');
+  const isGGMp4 = streamUrl.includes('gitsview.gg.go.kr');  // 경기도 GG KTICT MP4
+
+  // gitsview.gg.go.kr MP4 → /api/hls-proxy?mp4=BASE64 (mixed-content 우회)
+  const effectiveUrl = isGGMp4
+    ? `/api/hls-proxy?mp4=${btoa(streamUrl)}`
+    : streamUrl;
   if (isYouTube) {
     return (
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000814', overflow: 'hidden' }}>
@@ -64,7 +70,7 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
 
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || !streamUrl) {
+    if (!video || !effectiveUrl) {
       setStatus('no-stream');
       return;
     }
