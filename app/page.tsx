@@ -55,37 +55,59 @@ export default function Dashboard() {
         return () => document.removeEventListener('fullscreenchange', onFsChange);
     }, []);
 
-    // ─── 실제 Gimpo ITS 카메라 로드 ─────────────────────────────────────────
+    // ─── Gimpo 교통 카메라 로드: 경기도 KTICT (샘플키) + ITS 폴백 ──────────────
     useEffect(() => {
-        fetch('/api/gimpo-cctv?type=all')
+        const mapCamera = (c: ItsRaw, i: number, src: string): CctvItem => ({
+            id: c.id || `${src}-${i}`,
+            name: c.name || c.address || `김포 교통 CCTV ${i + 1}`,
+            type: 'traffic' as const,
+            status: '정상' as const,
+            region: '김포' as const,
+            district: (c.address ?? '').split(' ')[2] ?? '김포시',
+            address: c.address ?? '',
+            operator: src === 'GG_KTICT' ? '경기도교통정보센터(KTICT)' : '김포시교통정보센터(ITS)',
+            streamUrl: '',
+            hlsUrl: c.hlsUrl ?? '',
+            lat: c.lat,
+            lng: c.lng,
+        });
+
+        // 1순위: 경기도 KTICT API (샘플키 무료)
+        fetch('/api/gimpo-direct')
             .then(r => r.json())
             .then(json => {
                 if (json.success && json.cameras?.length) {
-                    const mapped: CctvItem[] = (json.cameras as ItsRaw[])
-                        .filter(c => c.lat > 37 && c.lng > 126 && c.hlsUrl)
-                        .map((c, i) => ({
-                            id: c.id || `ITS-${i}`,
-                            name: c.name || c.address || `김포 교통 CCTV ${i + 1}`,
-                            type: 'traffic' as const,
-                            status: '정상' as const,
-                            region: '김포' as const,
-                            district: (c.address ?? '').split(' ')[2] ?? '김포시',
-                            address: c.address ?? '',
-                            operator: '김포시교통정보센터(ITS)',
-                            streamUrl: '',
-                            hlsUrl: c.hlsUrl,
-                            lat: c.lat,
-                            lng: c.lng,
-                        }));
-                    setItsCameras(mapped);
+                    setItsCameras(
+                        (json.cameras as ItsRaw[])
+                            .filter(c => c.lat > 37 && c.lng > 126)
+                            .map((c, i) => mapCamera(c, i, 'GG_KTICT'))
+                    );
+                    setItsLoading(false);
+                    return;
                 }
+                throw new Error('GG empty');
             })
-            .catch(() => { })
-            .finally(() => setItsLoading(false));
+            .catch(() => {
+                // 2순위: ITS 내부 API 폴백
+                fetch('/api/gimpo-cctv?type=all')
+                    .then(r => r.json())
+                    .then(json => {
+                        if (json.success && json.cameras?.length) {
+                            setItsCameras(
+                                (json.cameras as ItsRaw[])
+                                    .filter(c => c.lat > 37 && c.lng > 126 && c.hlsUrl)
+                                    .map((c, i) => mapCamera(c, i, 'ITS'))
+                            );
+                        }
+                    })
+                    .catch(() => { })
+                    .finally(() => setItsLoading(false));
+            });
     }, []);
 
     // 실제 ITS + 스트림 있는 목업 통합 (ITS 실패 시 목업만)
     const ALL_CCTV: CctvItem[] = [...itsCameras, ...MOCK_STREAM];
+
 
     const filteredItems = ALL_CCTV.filter(c =>
         visible[c.type] && regionFilter[c.region]
