@@ -62,12 +62,8 @@ const st = (i: number): CctvStatus => {
     return '정상';
 };
 
-// 스트림 URL (12개 중 선택)
-const STREAMS = [
-    YT('XiL5PEoEmx4'), YT('bqrDKBdx8Bo'), YT('rGvblMlXaP0'),
-    YT('WiZ47KTkyTs'), YT('4Iu3N4JXFLE'), YT('aqz-KE-bpKQ'),
-    '', '', '', '', '', '',
-];
+// 스트림 URL — 방범/소방 카메라는 실제 스트림 없음 (교통 카메라만 ITS에서 실시간 연동)
+const STREAMS: string[] = new Array(12).fill('');
 const sv = (i: number) => STREAMS[i % STREAMS.length];
 const yr = (i: number) => 2018 + (i % 7);      // 2018~2024
 

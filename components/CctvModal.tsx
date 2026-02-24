@@ -25,26 +25,49 @@ export default function CctvModal({ cctv, onClose }: Props) {
   const [streamError, setStreamError] = useState(false);
   const cfg = TYPE_CFG[cctv.type];
 
-  // 교통 CCTV일 경우 ITS API에서 HLS 스트림 URL 가져오기
+  // ─── gimpo.cctvstream.net URL → /api/hls-proxy 변환 ─────────────────────
+  function toProxiedUrl(url: string): string | null {
+    if (!url) return null;
+    // https://gimpo.cctvstream.net:8443/c001/1080p.m3u8
+    const m = url.match(/gimpo\.cctvstream\.net[:/\d]+(\/c\d+\/)/);
+    if (m) {
+      const channel = m[1].replace(/\//g, '');  // → c001
+      return `/api/hls-proxy?channel=${channel}`;
+    }
+    // 이미 프록시 URL이거나 다른 HLS인 경우 그대로 사용
+    if (url.endsWith('.m3u8') || url.includes('hls-proxy')) return url;
+    return null;
+  }
+
   useEffect(() => {
+    setLiveStreamUrl(null);
+    setStreamError(false);
+
+    // 1순위: hlsUrl (ITS에서 받은 실제 스트림) → 프록시로 변환
+    if (cctv.hlsUrl) {
+      const proxied = toProxiedUrl(cctv.hlsUrl);
+      if (proxied) { setLiveStreamUrl(proxied); return; }
+    }
+
+    // 2순위: 교통 CCTV → ITS API에서 스트림 fetch
     if (cctv.type === 'traffic' && !cctv.streamUrl) {
       setStreamLoading(true);
       fetch(`/api/its-stream?id=${encodeURIComponent(cctv.id)}`)
         .then(r => r.json())
         .then(data => {
-          if (data.streamUrl) {
-            setLiveStreamUrl(data.streamUrl);
-          } else if (data.demoStream) {
-            // API 키 없을 때 데모 스트림
-            setLiveStreamUrl(data.demoStream);
-          }
+          const proxied = data.streamUrl ? toProxiedUrl(data.streamUrl) : null;
+          setLiveStreamUrl(proxied ?? data.demoStream ?? null);
         })
         .catch(() => setStreamError(true))
         .finally(() => setStreamLoading(false));
-    } else if (cctv.streamUrl) {
+      return;
+    }
+
+    // 3순위: streamUrl (YouTube embed 등)
+    if (cctv.streamUrl) {
       setLiveStreamUrl(cctv.streamUrl);
     }
-  }, [cctv.id, cctv.type, cctv.streamUrl]);
+  }, [cctv.id, cctv.type, cctv.streamUrl, cctv.hlsUrl]);
 
   const effectiveStreamUrl = liveStreamUrl;
 
