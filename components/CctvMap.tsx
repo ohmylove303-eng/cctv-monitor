@@ -185,31 +185,73 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
             const color = TYPE_COLOR[cam.type] ?? '#94a3b8';
             const border = STATUS_BORDER[cam.status] ?? 'rgba(148,163,184,0.4)';
             const icon = cam.type === 'crime' ? '📷' : cam.type === 'fire' ? '🚒' : '🚦';
+            const hasStream = !!(cam.hlsUrl || cam.streamUrl);
 
-            const el = document.createElement('div');
-            el.style.cssText = `
-        width:32px;height:32px;
-        background:${color}22;border:2.5px solid ${border};
-        border-radius:50% 50% 50% 0;transform:rotate(-45deg);
-        cursor:pointer;display:flex;align-items:center;justify-content:center;
-        box-shadow:0 0 12px ${color}66,0 2px 8px rgba(0,0,0,0.55);
-        transition:transform 0.12s ease;
-        ${cam.status === '고장' ? 'animation:blink 1.5s ease-in-out infinite;' : ''}
-      `;
+            // ── 외부 래퍼: hover 감지용 — 회전 없음, 실제 히트 영역 ──────
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = `
+                width:36px;height:36px;
+                cursor:pointer;
+                position:relative;
+                z-index:1;
+            `;
+
+            // ── 시각적 다이아몬드 마커 (포인터 이벤트 없음) ─────────────
+            const diamond = document.createElement('div');
+            diamond.style.cssText = `
+                width:28px;height:28px;
+                position:absolute;top:4px;left:4px;
+                background:${color}22;
+                border:2px solid ${border};
+                border-radius:50% 50% 50% 0;
+                transform:rotate(-45deg);
+                pointer-events:none;
+                box-shadow:0 0 10px ${color}55,0 2px 6px rgba(0,0,0,0.5);
+                transition:box-shadow 0.15s ease,background 0.15s ease;
+                ${cam.status === '고장' ? 'animation:blink 1.5s ease-in-out infinite;' : ''}
+            `;
+
             const inner = document.createElement('div');
-            inner.style.cssText = 'transform:rotate(45deg);font-size:14px;line-height:1;pointer-events:none;';
-            inner.textContent = icon;
-            el.appendChild(inner);
+            inner.style.cssText = `
+                transform:rotate(45deg);font-size:13px;
+                line-height:1;pointer-events:none;
+                display:flex;align-items:center;justify-content:center;
+                width:100%;height:100%;
+            `;
+            inner.textContent = hasStream ? icon : '⚫';
+            diamond.appendChild(inner);
 
-            el.addEventListener('mouseenter', () => { el.style.transform = 'rotate(-45deg) scale(1.28)'; });
-            el.addEventListener('mouseleave', () => { el.style.transform = 'rotate(-45deg) scale(1)'; });
-            el.addEventListener('click', e => { e.stopPropagation(); onSelect(cam); });
+            // 스트림 있을 때만 초록 dot ─────────────────────────────────
+            if (hasStream) {
+                const dot = document.createElement('div');
+                dot.style.cssText = `
+                    position:absolute;bottom:-1px;right:-1px;
+                    width:7px;height:7px;border-radius:50%;
+                    background:#22c55e;border:1.5px solid #020617;
+                    pointer-events:none;z-index:2;
+                    animation:pulse 2s ease-in-out infinite;
+                `;
+                wrapper.appendChild(dot);
+            }
 
-            const marker = new maplibregl.Marker({ element: el })
+            wrapper.appendChild(diamond);
+
+            // ── 호버: 래퍼에서만 감지 (transform 변경 없음) ──────────────
+            wrapper.addEventListener('mouseenter', () => {
+                diamond.style.background = `${color}44`;
+                diamond.style.boxShadow = `0 0 18px ${color}99,0 4px 10px rgba(0,0,0,0.6)`;
+            });
+            wrapper.addEventListener('mouseleave', () => {
+                diamond.style.background = `${color}22`;
+                diamond.style.boxShadow = `0 0 10px ${color}55,0 2px 6px rgba(0,0,0,0.5)`;
+            });
+            wrapper.addEventListener('click', e => { e.stopPropagation(); onSelect(cam); });
+
+            const marker = new maplibregl.Marker({ element: wrapper, anchor: 'center' })
                 .setLngLat([cam.lng, cam.lat])
                 .addTo(map);
 
-            markersRef.current.push(marker);  // 저장
+            markersRef.current.push(marker);
         });
     }, [items, onSelect]);
 

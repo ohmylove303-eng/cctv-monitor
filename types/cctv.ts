@@ -9,10 +9,11 @@ export interface CctvItem {
     type: CctvType;
     status: CctvStatus;
     region: CctvRegion;
-    district: string;         // 자치구/읍면동
+    district: string;
     address: string;
     operator: string;
-    streamUrl: string;
+    streamUrl: string;   // YouTube embed URL (데모)
+    hlsUrl?: string;     // 실제 HLS .m3u8 URL (김포 ITS 연동)
     resolution?: string;
     installedYear?: number;
     lat: number;
