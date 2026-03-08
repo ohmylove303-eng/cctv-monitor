@@ -2,49 +2,18 @@
 import { useState, useEffect } from 'react';
 import { CctvItem, ForensicResult } from '@/types/cctv';
 
+import { analyzeCctv } from '@/lib/forensic';
+
 interface Props { cctv: CctvItem; onClose: () => void; }
 
 type Phase = 'idle' | 'uploading' | 'analyzing' | 'done' | 'error';
 
-// Simulate MFSR forensic analysis (no real backend needed for demo)
-async function simulateMfsr(cctv: CctvItem): Promise<ForensicResult> {
-    await new Promise(r => setTimeout(r, 3200));
-    const jobId = Math.random().toString(16).slice(2, 18);
-    const h = () => Math.random().toString(16).slice(2, 66).padEnd(64, '0');
-    return {
-        job_id: jobId,
-        cctv_id: cctv.id,
-        timestamp: new Date().toISOString(),
-        algorithm: 'MFSR-v2.4.1 / Laplacian + Frame-diff + Optical-flow',
-        input_hash: h(),
-        result_hash: h(),
-        chain_hash: h(),
-        prev_hash: h(),
-        tsa_status: 'verified',
-        generative_ai_used: false,
-        quality_report: {
-            total_input: 150,
-            passed: 138,
-            dropped: 12,
-            threshold: 42.6,
-        },
-        events_detected: [
-            '정적 배경 확인',
-            '움직임 벡터 정상 범위',
-            '프레임 무결성 검증 완료',
-        ],
-        confidence: 96.4,
-        verdict: '영상 무결성 검증됨 — 위변조 흔적 없음',
-    };
-}
-
 const STEPS = [
-    { label: '영상 무결성 해시 계산중…', pct: 15 },
-    { label: 'MFSR 프레임 품질 필터링…', pct: 38 },
-    { label: 'Laplacian 선명도 분석…', pct: 55 },
-    { label: 'Optical-flow 기반 움직임 감지…', pct: 72 },
-    { label: 'TSA RFC 3161 타임스탬프 검증…', pct: 88 },
-    { label: '해시 체인 결합 완료…', pct: 99 },
+    { label: 'EQ12 서버 HLS 스트림 프레임 요청 중…', pct: 15 },
+    { label: 'YOLOv8n-SLoop 차량 객체 검출 중…', pct: 40 },
+    { label: 'EasyOCR 번호판 영역 추출 중…', pct: 60 },
+    { label: '차량 면적 기반 품질 필터링 중…', pct: 85 },
+    { label: '해시 체인 결합 및 결과 응답 대기 중…', pct: 99 },
 ];
 
 export default function ForensicModal({ cctv, onClose }: Props) {
@@ -58,19 +27,29 @@ export default function ForensicModal({ cctv, onClose }: Props) {
         setStepIdx(0);
         setProgress(0);
 
-        // Step simulation
-        for (let i = 0; i < STEPS.length; i++) {
-            await new Promise(r => setTimeout(r, 520));
-            setStepIdx(i);
-            setProgress(STEPS[i].pct);
-        }
-
         try {
-            const r = await simulateMfsr(cctv);
-            setResult(r);
-            setPhase('done');
-            setProgress(100);
-        } catch {
+            // Simulate steps for UI UX while background fetch happens
+            const uiPromise = (async () => {
+                for (let i = 0; i < STEPS.length; i++) {
+                    await new Promise(r => setTimeout(r, 800));
+                    setStepIdx(i);
+                    setProgress(STEPS[i].pct);
+                }
+            })();
+
+            const apiPromise = analyzeCctv(cctv.id, cctv.streamUrl || "");
+
+            const [_, resultData] = await Promise.all([uiPromise, apiPromise]);
+
+            if (resultData.status === 'ok') {
+                setResult(resultData as any);
+                setPhase('done');
+                setProgress(100);
+            } else {
+                throw new Error(resultData.message);
+            }
+        } catch (e) {
+            console.error(e);
             setPhase('error');
         }
     };
