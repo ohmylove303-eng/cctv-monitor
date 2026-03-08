@@ -1,15 +1,61 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { Camera } from '@/types';
 import { getStatusColor, getStatusLabel, formatTimestamp } from '@/lib/utils';
+import Hls from 'hls.js';
 
 interface Props {
     camera: Camera;
     onClose: () => void;
+    onAnalysis?: () => void;
 }
 
-export default function CameraDetail({ camera, onClose }: Props) {
+export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
     const color = getStatusColor(camera.status);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [hlsError, setHlsError] = useState(false);
+
+    useEffect(() => {
+        if (!camera.streamUrl || !videoRef.current) return;
+
+        let hls: Hls | null = null;
+        setHlsError(false);
+
+        if (Hls.isSupported()) {
+            hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+            });
+            hls.loadSource(camera.streamUrl);
+            hls.attachMedia(videoRef.current);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoRef.current?.play().catch(e => console.log('Autoplay prevented:', e));
+            });
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.error('HLS Error:', data);
+                    setHlsError(true);
+                    hls?.destroy();
+                }
+            });
+        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari Native HLS support
+            videoRef.current.src = camera.streamUrl;
+            videoRef.current.addEventListener('loadedmetadata', () => {
+                videoRef.current?.play().catch(e => console.log('Autoplay prevented:', e));
+            });
+            videoRef.current.addEventListener('error', () => {
+                setHlsError(true);
+            });
+        }
+
+        return () => {
+            if (hls) {
+                hls.destroy();
+            }
+        };
+    }, [camera.streamUrl]);
 
     return (
         <div
@@ -80,7 +126,7 @@ export default function CameraDetail({ camera, onClose }: Props) {
                 </div>
             </div>
 
-            {/* CCTV feed placeholder */}
+            {/* CCTV Live Feed */}
             <div
                 style={{
                     background: '#0a0a0a',
@@ -89,36 +135,52 @@ export default function CameraDetail({ camera, onClose }: Props) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'column',
-                    gap: 8,
                     borderBottom: '1px solid rgba(255,255,255,0.06)',
                     position: 'relative',
                     overflow: 'hidden',
                 }}
             >
-                <div
-                    style={{
-                        position: 'absolute',
-                        inset: 0,
-                        backgroundImage:
-                            'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px)',
-                    }}
-                />
-                <span style={{ fontSize: 32, opacity: 0.3 }}>📹</span>
-                <span style={{ fontSize: 11, color: '#334155' }}>라이브 스트림 미리보기</span>
+                {camera.streamUrl && !hlsError ? (
+                    <video
+                        ref={videoRef}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        autoPlay
+                        muted
+                        playsInline
+                    />
+                ) : (
+                    <>
+                        <div
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                backgroundImage:
+                                    'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.01) 2px, rgba(255,255,255,0.01) 4px)',
+                            }}
+                        />
+                        <span style={{ fontSize: 32, opacity: 0.3 }}>📹</span>
+                        <span style={{ fontSize: 11, color: hlsError ? '#ef4444' : '#334155' }}>
+                            {hlsError ? '라이브 스트림 연결 실패' : (camera.streamUrl ? '스트림 로딩 중...' : 'CCTV 영상 준비중')}
+                        </span>
+                    </>
+                )}
+
                 {camera.status === 'offline' && (
                     <span
                         style={{
+                            position: 'absolute',
                             fontSize: 11,
                             color: '#ef4444',
                             background: 'rgba(239,68,68,0.15)',
                             padding: '2px 10px',
                             borderRadius: 4,
+                            zIndex: 10
                         }}
                     >
                         오프라인
                     </span>
                 )}
-                {camera.status === 'recording' && (
+                {(camera.status === 'recording' || (camera.streamUrl && !hlsError)) && (
                     <span
                         style={{
                             position: 'absolute',
@@ -130,6 +192,10 @@ export default function CameraDetail({ camera, onClose }: Props) {
                             alignItems: 'center',
                             gap: 4,
                             fontWeight: 700,
+                            zIndex: 10,
+                            background: 'rgba(0,0,0,0.5)',
+                            padding: '2px 6px',
+                            borderRadius: 4
                         }}
                     >
                         <span
@@ -141,7 +207,7 @@ export default function CameraDetail({ camera, onClose }: Props) {
                                 animation: 'pulse 1s infinite',
                             }}
                         />
-                        REC
+                        LIVE
                     </span>
                 )}
             </div>
@@ -162,6 +228,30 @@ export default function CameraDetail({ camera, onClose }: Props) {
                         <span style={{ fontSize: 11, color: '#cbd5e1', textAlign: 'right' }}>{row.value}</span>
                     </div>
                 ))}
+                {onAnalysis && (
+                    <button
+                        onClick={onAnalysis}
+                        style={{
+                            marginTop: 10,
+                            width: '100%',
+                            padding: '10px',
+                            background: 'rgba(99,102,241,0.2)',
+                            border: '1px solid rgba(99,102,241,0.4)',
+                            borderRadius: 8,
+                            color: '#818cf8',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        ⚗ MFSR 포렌식 분석 (AI 전면 배제)
+                    </button>
+                )}
             </div>
         </div>
     );

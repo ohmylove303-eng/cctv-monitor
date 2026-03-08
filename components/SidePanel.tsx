@@ -1,6 +1,6 @@
-'use client';
 import { CctvItem, CctvType, LayerVisibility, RegionFilter } from '@/types/cctv';
 import { getStatusColor, getStatusLabel } from '@/lib/utils';
+import { SatelliteMode } from '@/components/SatelliteControlPanel';
 
 interface Props {
     allCctv: CctvItem[];
@@ -10,6 +10,10 @@ interface Props {
     onRegionChange: (r: RegionFilter) => void;
     onSelect: (c: CctvItem) => void;
     onFlyTo: (c: CctvItem) => void;
+
+    // 위성 레이어 제어 (VIBE MODE)
+    satelliteMode: SatelliteMode;
+    onSatelliteModeChange: (m: SatelliteMode) => void;
 }
 
 const TYPE_CFG: Record<CctvType, { label: string; icon: string; color: string; accent: string }> = {
@@ -21,6 +25,7 @@ const TYPE_CFG: Record<CctvType, { label: string; icon: string; color: string; a
 export default function SidePanel({
     allCctv, visible, regionFilter,
     onVisibleChange, onRegionChange, onSelect,
+    satelliteMode, onSatelliteModeChange,
 }: Props) {
     const filteredList = allCctv.filter(
         c => visible[c.type] && regionFilter[c.region]
@@ -106,6 +111,33 @@ export default function SidePanel({
                             </label>
                         );
                     })}
+                </div>
+
+                {/* 위성 레이어 (S-Loop OS vFinal) */}
+                <div style={{
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    marginTop: 8, paddingTop: 10
+                }}>
+                    <div style={{
+                        fontSize: 9, color: '#3b82f6', fontWeight: 700,
+                        letterSpacing: '0.1em', marginBottom: 7, textTransform: 'uppercase'
+                    }}>
+                        🛰 Satellite Layers
+                    </div>
+                    {(['off', 'gk2a', 'sentinel', 'planet'] as const).map(m => (
+                        <button key={m} onClick={() => onSatelliteModeChange(m)}
+                            style={{
+                                width: '100%', textAlign: 'left', padding: '6px 10px',
+                                borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                                background: satelliteMode === m ? 'rgba(59,130,246,0.15)' : 'transparent',
+                                border: `1px solid ${satelliteMode === m ? 'rgba(59,130,246,0.4)' : 'transparent'}`,
+                                color: satelliteMode === m ? '#60a5fa' : '#475569',
+                                marginBottom: 3, fontWeight: satelliteMode === m ? 700 : 500,
+                                transition: 'all 0.1s'
+                            }}>
+                            {m === 'off' ? '비활성화' : m.toUpperCase()}
+                        </button>
+                    ))}
                 </div>
             </div>
 

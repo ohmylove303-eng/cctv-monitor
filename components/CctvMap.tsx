@@ -1,9 +1,14 @@
-'use client';
 import {
     useEffect, useRef, useImperativeHandle,
-    forwardRef, useState, useCallback,
+    forwardRef, useState, useCallback, useMemo,
 } from 'react';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import DeckGL from '@deck.gl/react';
+import { ScatterplotLayer } from '@deck.gl/layers';
+import { Tile3DLayer } from '@deck.gl/geo-layers';
 import { CctvItem } from '@/types/cctv';
+import { SatellitePosition } from '@/app/types';
+import type { SatelliteMode } from '@/components/SatelliteControlPanel';
 
 export interface CctvMapHandle {
     flyTo: (lat: number, lng: number, zoom?: number) => void;
@@ -12,6 +17,12 @@ export interface CctvMapHandle {
 interface Props {
     items: CctvItem[];
     onSelect: (cctv: CctvItem) => void;
+    // 위성 레이어 props
+    satelliteMode?: SatelliteMode;
+    satelliteOpacity?: number;
+    sentinelDate?: string;
+    onLastUpdated?: (t: string) => void;
+    onLoadingChange?: (v: boolean) => void;
 }
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
@@ -83,15 +94,11 @@ function makeDroneGeoJson(features: typeof DRONE_SOURCES['drone-no-fly']['featur
 }
 
 // ─── MapLibre 스타일 빌드 ────────────────────────────────────────────────────
-// 다크: OpenFreeMap 벡터 타일 (한국어 라벨·행정구역·교차로 완전 지원)
-// 위성: ESRI 위성 래스터
-// 하이브리드: ESRI 위성 + OSM 라벨 오버레이
 function buildStyle(s: MapStyle): string | object {
     const SAT = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
     const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
     if (s === 'dark') {
-        // OpenFreeMap dark style URL → 한국어 도로명·행정구역·교차로 자동 포함
         return 'https://tiles.openfreemap.org/styles/dark';
     }
 
@@ -108,7 +115,7 @@ function buildStyle(s: MapStyle): string | object {
         };
     }
 
-    // hybrid: 위성 + OSM 라벨 오버레이 (행정구역·교차로 보임)
+    // hybrid: 위성 + OSM 라벨 오버레이
     return {
         version: 8,
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
@@ -129,7 +136,6 @@ function buildStyle(s: MapStyle): string | object {
 
 // ─── 드론 레이어 맵에 추가 ──────────────────────────────────────────────────
 function addDroneLayers(map: import('maplibre-gl').Map) {
-    // 이미 소스가 있으면 제거 후 재추가 (스타일 변경 후 소스가 사라지는 케이스 대응)
     ['drone-no-fly', 'drone-restricted', 'drone-allowed'].forEach(id => {
         if (map.getLayer(`${id}-fill`)) map.removeLayer(`${id}-fill`);
         if (map.getLayer(`${id}-stroke`)) map.removeLayer(`${id}-stroke`);
@@ -143,7 +149,7 @@ function addDroneLayers(map: import('maplibre-gl').Map) {
         map.addSource(srcId, { type: 'geojson', data: makeDroneGeoJson(DRONE_SOURCES[srcId].features) });
         map.addLayer({
             id: `${srcId}-fill`, type: 'fill', source: srcId,
-            paint: { 'fill-color': cfg.fill, 'fill-opacity': 0.35 }  // 가시성 증가
+            paint: { 'fill-color': cfg.fill, 'fill-opacity': 0.35 }
         });
         map.addLayer({
             id: `${srcId}-stroke`, type: 'line', source: srcId,
@@ -157,17 +163,67 @@ function addDroneLayers(map: import('maplibre-gl').Map) {
     });
 }
 
+// ─── 위성 레이어 ID 상수 ─────────────────────────────────────────────────────
+const SAT_IMAGE_SOURCE = 'sat-image-source';
+const SAT_IMAGE_LAYER = 'sat-image-layer';
+const SAT_RASTER_SOURCE = 'sat-raster-source';
+const SAT_RASTER_LAYER = 'sat-raster-layer';
+
+function removeSatLayers(map: import('maplibre-gl').Map) {
+    if (map.getLayer(SAT_IMAGE_LAYER)) map.removeLayer(SAT_IMAGE_LAYER);
+    if (map.getLayer(SAT_RASTER_LAYER)) map.removeLayer(SAT_RASTER_LAYER);
+    if (map.getSource(SAT_IMAGE_SOURCE)) map.removeSource(SAT_IMAGE_SOURCE);
+    if (map.getSource(SAT_RASTER_SOURCE)) map.removeSource(SAT_RASTER_SOURCE);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
-const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
+const CctvMap = forwardRef<CctvMapHandle, Props>(({
+    items,
+    onSelect,
+    satelliteMode = 'off',
+    satelliteOpacity = 60,
+    sentinelDate,
+    onLastUpdated,
+    onLoadingChange,
+}, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<import('maplibre-gl').Map | null>(null);
-    const markersRef = useRef<import('maplibre-gl').Marker[]>([]);  // ← 핵심 fix
+    const markersRef = useRef<import('maplibre-gl').Marker[]>([]);
     const mapReadyRef = useRef(false);
-    const refreshMarkersRef = useRef<() => void>(() => { });  // ← 항상 최신 함수 참조
+    const refreshMarkersRef = useRef<() => void>(() => { });
 
     const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
     const [showDrone, setShowDrone] = useState(true);
     const [droneInfo, setDroneInfo] = useState<string | null>(null);
+
+    // ─── 위성 데이터 상태 (S-Loop OS vFinal) ───────────────────────────────────
+    const [satPositions, setSatPositions] = useState<SatellitePosition[]>([]);
+    const workerRef = useRef<Worker | null>(null);
+    const [viewState, setViewState] = useState({
+        longitude: 126.680,
+        latitude: 37.520,
+        zoom: 10,
+        pitch: 0,
+        bearing: 0
+    });
+
+    // 1. 위성 추적 워커 초기화
+    useEffect(() => {
+        async function initSatellites() {
+            try {
+                const res = await fetch('/api/tle');
+                const tles = await res.json();
+
+                workerRef.current = new Worker('/workers/satelliteWorker.js');
+                workerRef.current.postMessage({ type: 'INIT', tles });
+                workerRef.current.onmessage = (e) => {
+                    if (e.data.type === 'UPDATE') setSatPositions(e.data.positions);
+                };
+            } catch (err) { console.error('Sat Worker Error:', err); }
+        }
+        initSatellites();
+        return () => workerRef.current?.terminate();
+    }, []);
 
     useImperativeHandle(ref, () => ({
         flyTo: (lat, lng, zoom = 14) => {
@@ -175,12 +231,11 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         },
     }));
 
-    // ─── CCTV 마커 갱신 (올바른 인스턴스 관리) ────────────────────────────────
+    // ─── CCTV 마커 갱신 ────────────────────────────────────────────────────
     const refreshMarkers = useCallback(async () => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
 
-        // 이전 마커 인스턴스 전부 제거
         markersRef.current.forEach(m => m.remove());
         markersRef.current = [];
 
@@ -193,7 +248,6 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
             const icon = cam.type === 'crime' ? '📷' : cam.type === 'fire' ? '🚒' : '🚦';
             const hasStream = !!(cam.hlsUrl || cam.streamUrl);
 
-            // ── 외부 래퍼: hover 감지용 — 회전 없음, 실제 히트 영역 ──────
             const wrapper = document.createElement('div');
             wrapper.style.cssText = `
                 width:36px;height:36px;
@@ -202,7 +256,6 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
                 z-index:1;
             `;
 
-            // ── 시각적 다이아몬드 마커 (포인터 이벤트 없음) ─────────────
             const diamond = document.createElement('div');
             diamond.style.cssText = `
                 width:28px;height:28px;
@@ -227,7 +280,6 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
             inner.textContent = hasStream ? icon : '⚫';
             diamond.appendChild(inner);
 
-            // 스트림 있을 때만 초록 dot ─────────────────────────────────
             if (hasStream) {
                 const dot = document.createElement('div');
                 dot.style.cssText = `
@@ -242,7 +294,6 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
 
             wrapper.appendChild(diamond);
 
-            // ── 호버: 래퍼에서만 감지 (transform 변경 없음) ──────────────
             wrapper.addEventListener('mouseenter', () => {
                 diamond.style.background = `${color}44`;
                 diamond.style.boxShadow = `0 0 18px ${color}99,0 4px 10px rgba(0,0,0,0.6)`;
@@ -261,10 +312,9 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         });
     }, [items, onSelect]);
 
-    // refreshMarkersRef를 항상 최신으로 유지 → load 클로저에서 stale 방지
     refreshMarkersRef.current = refreshMarkers;
 
-    // ─── 지도 초기화 (한 번만) ────────────────────────────────────────────────
+    // ─── 지도 초기화 (한 번만) ─────────────────────────────────────────────
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return;
 
@@ -286,7 +336,18 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
                 mapReadyRef.current = true;
                 addDroneLayers(map);
 
-                // 드론 구역 클릭 이벤트
+                // MapLibre 이동 시 viewState 동기화
+                map.on('move', () => {
+                    const center = map.getCenter();
+                    setViewState({
+                        longitude: center.lng,
+                        latitude: center.lat,
+                        zoom: map.getZoom(),
+                        pitch: map.getPitch(),
+                        bearing: map.getBearing()
+                    });
+                });
+
                 ['drone-no-fly-fill', 'drone-restricted-fill', 'drone-allowed-fill'].forEach(id => {
                     map.on('click', id, e => {
                         setDroneInfo(e.features?.[0]?.properties?.label ?? null);
@@ -300,7 +361,6 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
             });
         });
 
-        // Fallback: 지도가 이미 로드된 경우 바로 실행
         setTimeout(() => {
             if (mapReadyRef.current && markersRef.current.length === 0) {
                 refreshMarkersRef.current();
@@ -317,18 +377,17 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ─── 아이템 변경 시 마커 갱신 ─────────────────────────────────────────────
+    // ─── 아이템 변경 시 마커 갱신 ─────────────────────────────────────────
     useEffect(() => {
         if (mapReadyRef.current) refreshMarkers();
     }, [refreshMarkers]);
 
-    // ─── 지도 스타일 변경 ─────────────────────────────────────────────────────
+    // ─── 지도 스타일 변경 ────────────────────────────────────────────────
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         map.setStyle(buildStyle(mapStyle) as any);
-        // OpenFreeMap URL 스타일은 'style.load' 이벤트 사용
         const onStyleLoad = () => {
             addDroneLayers(map);
             refreshMarkersRef.current();
@@ -337,7 +396,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapStyle]);
 
-    // ─── 드론 레이어 가시성 ───────────────────────────────────────────────────
+    // ─── 드론 레이어 가시성 ──────────────────────────────────────────────
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
@@ -348,9 +407,191 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({ items, onSelect }, ref) => {
         ].forEach(id => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); });
     }, [showDrone]);
 
+    // ─── 위성 레이어 관리 ────────────────────────────────────────────────
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        // map 로드 완료 대기
+        const applyLayer = async () => {
+            if (!mapReadyRef.current) return;
+
+            // 기존 위성 레이어 전부 제거
+            removeSatLayers(map);
+
+            if (satelliteMode === 'off') return;
+
+            if (satelliteMode === 'gk2a') {
+                onLoadingChange?.(true);
+
+                const doFetch = async () => {
+                    try {
+                        const res = await fetch('/api/satellite/gk2a', { cache: 'no-store' });
+                        const data = await res.json() as { imageUrl: string | null; fallback?: boolean };
+
+                        const currentMap = mapRef.current;
+                        if (!currentMap || !mapReadyRef.current) return;
+
+                        // 이전 레이어 제거 후 재추가
+                        if (currentMap.getLayer(SAT_IMAGE_LAYER)) currentMap.removeLayer(SAT_IMAGE_LAYER);
+                        if (currentMap.getSource(SAT_IMAGE_SOURCE)) currentMap.removeSource(SAT_IMAGE_SOURCE);
+
+                        if (data.imageUrl) {
+                            currentMap.addSource(SAT_IMAGE_SOURCE, {
+                                type: 'image',
+                                url: data.imageUrl,
+                                coordinates: [
+                                    [116.0, 40.0],
+                                    [132.0, 40.0],
+                                    [132.0, 30.0],
+                                    [116.0, 30.0],
+                                ],
+                            });
+                            currentMap.addLayer({
+                                id: SAT_IMAGE_LAYER,
+                                type: 'raster',
+                                source: SAT_IMAGE_SOURCE,
+                                paint: { 'raster-opacity': satelliteOpacity / 100 },
+                            });
+                            onLastUpdated?.(new Date().toLocaleTimeString('ko-KR'));
+                        }
+                    } catch (err) {
+                        console.error('[GK2A layer]', err);
+                    } finally {
+                        onLoadingChange?.(false);
+                    }
+                };
+
+                await doFetch();
+                // 2분마다 자동 갱신
+                const interval = setInterval(doFetch, 120000);
+                return () => clearInterval(interval);
+            }
+
+            if (satelliteMode === 'sentinel') {
+                const date = sentinelDate ?? new Date().toISOString().split('T')[0];
+                try {
+                    const res = await fetch(`/api/satellite/sentinel?date=${date}`, { cache: 'no-store' });
+                    const data = await res.json() as {
+                        tileUrl: string | null;
+                        instanceId?: string;
+                        fallback?: boolean;
+                    };
+
+                    const currentMap = mapRef.current;
+                    if (!currentMap || !mapReadyRef.current) return;
+
+                    if (currentMap.getLayer(SAT_RASTER_LAYER)) currentMap.removeLayer(SAT_RASTER_LAYER);
+                    if (currentMap.getSource(SAT_RASTER_SOURCE)) currentMap.removeSource(SAT_RASTER_SOURCE);
+
+                    if (data.tileUrl) {
+                        currentMap.addSource(SAT_RASTER_SOURCE, {
+                            type: 'raster',
+                            tiles: [data.tileUrl],
+                            tileSize: 256,
+                        });
+                        currentMap.addLayer({
+                            id: SAT_RASTER_LAYER,
+                            type: 'raster',
+                            source: SAT_RASTER_SOURCE,
+                            paint: { 'raster-opacity': satelliteOpacity / 100 },
+                        });
+                    }
+                } catch (err) {
+                    console.error('[Sentinel layer]', err);
+                }
+            }
+
+            if (satelliteMode === 'planet') {
+                try {
+                    const res = await fetch('/api/satellite/planet', { cache: 'no-store' });
+                    const data = await res.json() as { tileUrl: string | null; fallback?: boolean };
+
+                    const currentMap = mapRef.current;
+                    if (!currentMap || !mapReadyRef.current) return;
+
+                    if (currentMap.getLayer(SAT_RASTER_LAYER)) currentMap.removeLayer(SAT_RASTER_LAYER);
+                    if (currentMap.getSource(SAT_RASTER_SOURCE)) currentMap.removeSource(SAT_RASTER_SOURCE);
+
+                    if (data.tileUrl) {
+                        currentMap.addSource(SAT_RASTER_SOURCE, {
+                            type: 'raster',
+                            tiles: [data.tileUrl],
+                            tileSize: 256,
+                        });
+                        currentMap.addLayer({
+                            id: SAT_RASTER_LAYER,
+                            type: 'raster',
+                            source: SAT_RASTER_SOURCE,
+                            paint: { 'raster-opacity': satelliteOpacity / 100 },
+                        });
+                    }
+                } catch (err) {
+                    console.error('[Planet layer]', err);
+                }
+            }
+        };
+
+        // 지도 아직 미로드 시: style.load 후 실행
+        if (!mapReadyRef.current) {
+            const handler = () => { applyLayer(); };
+            mapRef.current?.once('style.load', handler);
+            return;
+        }
+
+        const cleanup = applyLayer();
+        // cleanup이 Promise<(() => void) | undefined> 이므로 처리
+        let clearFn: (() => void) | undefined;
+        (cleanup as Promise<(() => void) | undefined>)?.then?.(fn => { clearFn = fn; });
+        return () => { clearFn?.(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [satelliteMode, sentinelDate]);
+
+    // ─── 투명도 변경 시 즉시 반영 ────────────────────────────────────────
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReadyRef.current) return;
+
+        const opacity = satelliteOpacity / 100;
+        if (map.getLayer(SAT_IMAGE_LAYER)) {
+            map.setPaintProperty(SAT_IMAGE_LAYER, 'raster-opacity', opacity);
+        }
+        if (map.getLayer(SAT_RASTER_LAYER)) {
+            map.setPaintProperty(SAT_RASTER_LAYER, 'raster-opacity', opacity);
+        }
+    }, [satelliteOpacity]);
+
+    // ─── Deck.gl 레이어 정의 ────────────────────────────────────────────────
+    const deckLayers = useMemo(() => [
+        new Tile3DLayer({
+            id: 'google-3d-tiles',
+            data: 'https://tile.googleapis.com/v1/3dtiles/root.json',
+            loadOptions: { fetch: { headers: { 'X-GOOG-API-KEY': process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '' } } },
+            onTilesetLoad: (tileset) => { tileset.setProps({ maximumScreenSpaceError: 16 }); }
+        }),
+        new ScatterplotLayer({
+            id: 'satellites-layer',
+            data: satPositions,
+            getPosition: d => d.coordinates,
+            getFillColor: [0, 230, 255, 180],
+            getRadius: 6000,
+            radiusUnits: 'meters'
+        })
+    ], [satPositions]);
+
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+            {/* 1. 기본 MapLibre 컨테이너 (과거 기능 무결성 유지) */}
+            <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }} />
+
+            {/* 2. Deck.gl 오버레이 (위성 추적/3D 타일) */}
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                <DeckGL
+                    viewState={viewState}
+                    layers={deckLayers}
+                    style={{ width: '100%', height: '100%' }}
+                />
+            </div>
 
             {/* 지도 스타일 + 드론 토글 */}
             <div style={{

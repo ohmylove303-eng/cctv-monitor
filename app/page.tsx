@@ -1,274 +1,226 @@
 'use client';
-import { useState, useRef, useCallback, useEffect } from 'react';
-import dynamic from 'next/dynamic';
-import { CctvItem, LayerVisibility, RegionFilter } from '@/types/cctv';
-import { gimpoCctv } from '@/data/cctv-gimpo';
-import { incheonCctv } from '@/data/cctv-incheon';
+
+import { useState, useEffect, useMemo, useRef } from 'react';
 import StatusBar from '@/components/StatusBar';
 import SidePanel from '@/components/SidePanel';
+import CctvMap, { CctvMapHandle } from '@/components/CctvMap';
 import EventPanel from '@/components/EventPanel';
-import ForensicSearch from '@/components/ForensicSearch';
-import CctvModal from '@/components/CctvModal';
-import { CctvMapHandle } from '@/components/CctvMap';
+import CameraDetail from '@/components/CameraDetail';
+import ForensicModal from '@/components/ForensicModal';
 
-const CctvMap = dynamic(() => import('@/components/CctvMap'), { ssr: false });
+import { CctvItem, LayerVisibility, RegionFilter } from '@/types/cctv';
+import { SatelliteMode } from '@/components/SatelliteControlPanel';
+import SatelliteControlPanel from '@/components/SatelliteControlPanel';
 
-// 스트림이 연결된 목업 카메라만 (YouTube 임베드 있는 것)
-const MOCK_STREAM = [...gimpoCctv, ...incheonCctv].filter(c => c.streamUrl);
+// 원본 데이터 복구
+import { gimpoCctv } from '@/data/cctv-gimpo';
+import { incheonCctv } from '@/data/cctv-incheon';
 
-type RightTab = 'events' | 'search';
+const mapTypeToEn = (koType: string) => {
+    if (koType === '방범') return 'crime';
+    if (koType === '소방') return 'fire';
+    if (koType === '교통') return 'traffic';
+    return koType;
+};
 
-interface ItsRaw {
-    id: string; name?: string; address?: string;
-    lat: number; lng: number; hlsUrl: string; source: string;
-}
+const initialCctv = [...gimpoCctv, ...incheonCctv].map(c => ({
+    ...c,
+    type: mapTypeToEn(c.type) as any
+}));
 
-export default function Dashboard() {
+export default function DashboardPage() {
     const mapRef = useRef<CctvMapHandle>(null);
 
-    const [visible, setVisible] = useState<LayerVisibility>({
-        crime: true, fire: true, traffic: true,
-    });
-    const [regionFilter, setRegionFilter] = useState<RegionFilter>({
-        김포: true, 인천: true,
-    });
-    const [selectedCctv, setSelectedCctv] = useState<CctvItem | null>(null);
-    const [rightTab, setRightTab] = useState<RightTab>('events');
-    const [itsLoading, setItsLoading] = useState(true);
-    const [itsCameras, setItsCameras] = useState<CctvItem[]>([]);
-    const [isFullscreen, setIsFullscreen] = useState(false);
-    const mapWrapperRef = useRef<HTMLDivElement>(null);
+    // ─── 데이터 상태 (원본 데이터로 초기화, 타입 영문화) ──────────────────────────────────
+    const [allCctv, setAllCctv] = useState<CctvItem[]>(initialCctv);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [showForensic, setShowForensic] = useState(false);
 
-    const toggleFullscreen = useCallback(() => {
-        const el = mapWrapperRef.current;
-        if (!el) return;
-        if (!document.fullscreenElement) {
-            el.requestFullscreen?.();
-        } else {
-            document.exitFullscreen?.();
+    // ─── 필터 상태 ──────────────────────────────────────────────────────────
+    const [visible, setVisible] = useState<LayerVisibility>({ crime: true, fire: true, traffic: true });
+    const [regionFilter, setRegionFilter] = useState<RegionFilter>({ '김포': true, '인천': true });
+
+    // ─── 위성 옵션 (S-Loop OS vFinal) ──────────────────────────────────────────
+    const [satelliteMode, setSatelliteMode] = useState<SatelliteMode>('off');
+    const [satelliteOpacity, setSatelliteOpacity] = useState(60);
+    const [sentinelDate, setSentinelDate] = useState(new Date().toISOString().split('T')[0]);
+    const [satLastUpdated, setSatLastUpdated] = useState<string | null>(null);
+    const [isSatLoading, setIsSatLoading] = useState(false);
+
+    // ─── 실시간 데이터 병합 (ITS API) ──────────────────────────────────────────
+    useEffect(() => {
+        async function syncRealData() {
+            try {
+                const res = await fetch('/api/cctv');
+                if (!res.ok) return;
+                const realData = await res.json();
+                if (!realData || realData.length === 0) return;
+
+                // 기존 데이터와 병합 (실시간 데이터가 우선)
+                setAllCctv(prev => {
+                    const merged = [...prev];
+                    realData.forEach((d: any) => {
+                        const idx = merged.findIndex(m => m.id === d.id);
+                        const newItem: CctvItem = {
+                            id: d.id,
+                            name: d.name,
+                            type: (d.id.startsWith('G-T') || d.id.includes('traffic')) ? 'traffic' : (d.id.includes('fire') ? 'fire' : 'crime'),
+                            status: d.status === 'online' ? '정상' : (d.status === 'offline' ? '고장' : '점검중'),
+                            region: d.region === '인천' ? '인천' : '김포',
+                            district: d.region,
+                            address: d.name,
+                            operator: d.operator || 'System',
+                            streamUrl: d.streamUrl || '',
+                            hlsUrl: d.streamUrl,
+                            lat: d.coordinates[1],
+                            lng: d.coordinates[0],
+                        };
+                        if (idx >= 0) merged[idx] = newItem;
+                        else merged.push(newItem);
+                    });
+                    return merged;
+                });
+            } catch (err) {
+                console.warn('ITS API Sync skipped:', err);
+            }
         }
+        syncRealData();
     }, []);
 
-    useEffect(() => {
-        const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-        document.addEventListener('fullscreenchange', onFsChange);
-        return () => document.removeEventListener('fullscreenchange', onFsChange);
-    }, []);
+    const selectedCctv = useMemo(() =>
+        allCctv.find(c => c.id === selectedId) || null
+        , [allCctv, selectedId]);
 
-    // ─── Gimpo 교통 카메라 로드: 경기도 KTICT (샘플키) + ITS 폴백 ──────────────
-    useEffect(() => {
-        const mapCamera = (c: ItsRaw, i: number, src: string): CctvItem => ({
-            id: c.id || `${src}-${i}`,
-            name: c.name || c.address || `김포 교통 CCTV ${i + 1}`,
-            type: 'traffic' as const,
-            status: '정상' as const,
-            region: '김포' as const,
-            district: (c.address ?? '').split(' ')[2] ?? '김포시',
-            address: c.address ?? '',
-            operator: src === 'GG_KTICT' ? '경기도교통정보센터(KTICT)' : '김포시교통정보센터(ITS)',
-            streamUrl: '',
-            hlsUrl: c.hlsUrl ?? '',
-            lat: c.lat,
-            lng: c.lng,
-        });
-
-        // 1순위: 경기도 KTICT API (샘플키 무료)
-        fetch('/api/gimpo-direct')
-            .then(r => r.json())
-            .then(json => {
-                if (json.success && json.cameras?.length) {
-                    setItsCameras(
-                        (json.cameras as ItsRaw[])
-                            .filter(c => c.lat > 37 && c.lng > 126)
-                            .map((c, i) => mapCamera(c, i, 'GG_KTICT'))
-                    );
-                    setItsLoading(false);
-                    return;
-                }
-                throw new Error('GG empty');
-            })
-            .catch(() => {
-                // 2순위: ITS 내부 API 폴백
-                fetch('/api/gimpo-cctv?type=all')
-                    .then(r => r.json())
-                    .then(json => {
-                        if (json.success && json.cameras?.length) {
-                            setItsCameras(
-                                (json.cameras as ItsRaw[])
-                                    .filter(c => c.lat > 37 && c.lng > 126 && c.hlsUrl)
-                                    .map((c, i) => mapCamera(c, i, 'ITS'))
-                            );
-                        }
-                    })
-                    .catch(() => { })
-                    .finally(() => setItsLoading(false));
-            });
-    }, []);
-
-    // 실제 ITS + 스트림 있는 목업 통합 (ITS 실패 시 목업만)
-    const ALL_CCTV: CctvItem[] = [...itsCameras, ...MOCK_STREAM];
-
-
-    const filteredItems = ALL_CCTV.filter(c =>
-        visible[c.type] && regionFilter[c.region]
-    );
-
-    const flyTo = useCallback((cctv: CctvItem, zoom = 14) => {
-        mapRef.current?.flyTo(cctv.lat, cctv.lng, zoom);
-    }, []);
-
-    const handleSelect = useCallback((cctv: CctvItem) => {
-        flyTo(cctv);
-        setSelectedCctv(cctv);
-    }, [flyTo]);
-
-    const handleLocate = useCallback((cctvId: string) => {
-        const found = ALL_CCTV.find(c => c.id === cctvId);
-        if (found) { flyTo(found); setSelectedCctv(found); }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [flyTo, ALL_CCTV.length]);
+    // ─── 핸들러 ───────────────────────────────────────────────────────────
+    const handleLocate = (id: string) => {
+        const item = allCctv.find(c => c.id === id);
+        if (item) {
+            setSelectedId(item.id);
+            mapRef.current?.flyTo(item.lat, item.lng, 15);
+        }
+    };
 
     return (
-        <div style={{
-            height: '100vh', display: 'grid',
-            gridTemplateRows: 'auto minmax(0, 1fr)',
-            gap: 8, padding: 8, background: '#020617',
+        <main style={{
+            height: '100vh', width: '100vw',
+            background: '#020617', color: '#f8fafc',
+            display: 'flex', flexDirection: 'column',
+            overflow: 'hidden', padding: 12, gap: 12,
         }}>
-            <StatusBar allItems={ALL_CCTV} />
+            {/* 상단 통합 상황 바 */}
+            <StatusBar allItems={allCctv} />
 
-            <div style={{
-                display: 'grid', gridTemplateColumns: '252px minmax(0,1fr) 300px',
-                gap: 8, minHeight: 0
-            }}>
-
-                <SidePanel
-                    allCctv={ALL_CCTV}
-                    visible={visible}
-                    regionFilter={regionFilter}
-                    onVisibleChange={setVisible}
-                    onRegionChange={setRegionFilter}
-                    onSelect={handleSelect}
-                    onFlyTo={flyTo}
-                />
-
-                {/* 중앙: 지도 */}
-                <div ref={mapWrapperRef} className="glass-panel" style={{
-                    borderRadius: isFullscreen ? 0 : 12, overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column', minHeight: 0,
-                    ...(isFullscreen ? { position: 'fixed', inset: 0, zIndex: 9999, borderRadius: 0 } : {})
-                }}>
-
-                    {/* 툴바 */}
-                    <div style={{
-                        padding: '8px 13px',
-                        borderBottom: '1px solid var(--border-glass)',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        flexShrink: 0, background: 'rgba(13,25,48,0.85)'
-                    }}>
-                        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.520, 126.680, 10)}>⊙ 전체</button>
-                            <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.615, 126.716, 12)}>✈ 김포</button>
-                            <button className="btn-neon" onClick={() => mapRef.current?.flyTo(37.456, 126.705, 11)}>⚓ 인천</button>
-                            {/* 전체화면 버튼 */}
-                            <button
-                                onClick={toggleFullscreen}
-                                title={isFullscreen ? '전체화면 종료' : '지도 전체화면'}
-                                style={{
-                                    padding: '4px 9px', borderRadius: 5, fontSize: 11,
-                                    cursor: 'pointer', fontWeight: 700,
-                                    background: isFullscreen ? 'rgba(239,68,68,0.15)' : 'rgba(64,196,255,0.1)',
-                                    border: `1px solid ${isFullscreen ? 'rgba(239,68,68,0.4)' : 'rgba(64,196,255,0.3)'}`,
-                                    color: isFullscreen ? '#f87171' : '#40c4ff',
-                                    transition: 'all 0.15s',
-                                }}>
-                                {isFullscreen ? '✕ 전체화면 종료' : '⛶ 전체화면'}
-                            </button>
-                            {([
-                                { key: 'crime' as const, label: '📷방범', color: '#60a5fa' },
-                                { key: 'fire' as const, label: '🚒소방', color: '#f87171' },
-                                { key: 'traffic' as const, label: '🚦교통', color: '#34d399' },
-                            ] as const).map(({ key, label, color }) => (
-                                <button key={key}
-                                    onClick={() => setVisible(v => ({ ...v, [key]: !v[key] }))}
-                                    style={{
-                                        padding: '4px 9px', borderRadius: 5, fontSize: 10,
-                                        fontWeight: visible[key] ? 800 : 500, cursor: 'pointer',
-                                        background: visible[key] ? `${color}18` : 'rgba(255,255,255,0.03)',
-                                        border: `1px solid ${visible[key] ? color + '44' : 'rgba(255,255,255,0.07)'}`,
-                                        color: visible[key] ? color : '#334155', transition: 'all 0.12s',
-                                    }}>
-                                    {label}
-                                </button>
-                            ))}
-                            {/* ITS 연동 상태 */}
-                            {itsLoading ? (
-                                <span style={{ fontSize: 9, color: '#f59e0b' }}>⟳ ITS 연동중…</span>
-                            ) : itsCameras.length > 0 ? (
-                                <span style={{ fontSize: 9, color: '#22c55e' }}>
-                                    ● ITS 실제 {itsCameras.length}대 연동됨
-                                </span>
-                            ) : (
-                                <span style={{ fontSize: 9, color: '#475569' }}>ITS 대기중</span>
-                            )}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#334155', flexShrink: 0 }}>
-                            표시 {filteredItems.length}대 / 전체 {ALL_CCTV.length}대
-                        </div>
-                    </div>
-
-                    <div style={{ flex: 1, minHeight: 0 }}>
-                        <CctvMap ref={mapRef} items={filteredItems} onSelect={handleSelect} />
-                    </div>
-
-                    <div style={{
-                        padding: '5px 14px',
-                        borderTop: '1px solid var(--border-glass)',
-                        display: 'flex', gap: 16, fontSize: 9, color: '#334155',
-                        flexShrink: 0, background: 'rgba(13,25,48,0.8)', flexWrap: 'wrap'
-                    }}>
-                        <span style={{ color: '#3b82f6' }}>● MFSR 엔진 v2.4.1</span>
-                        <span>생성형 AI 배제 ✓</span>
-                        <span>방범 {filteredItems.filter(c => c.type === 'crime').length}대 · 소방 {filteredItems.filter(c => c.type === 'fire').length}대 · 교통 {filteredItems.filter(c => c.type === 'traffic').length}대</span>
-                        <span style={{ color: '#22c55e' }}>
-                            ● 실제스트림 {filteredItems.filter(c => c.hlsUrl || c.streamUrl).length}대
-                        </span>
-                    </div>
+            <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
+                {/* 좌측 패널 (CCTV 레이어 + 지역 필터 + 위성 레이어 제어) */}
+                <div style={{ width: 280, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <SidePanel
+                        allCctv={allCctv}
+                        visible={visible}
+                        regionFilter={regionFilter}
+                        onVisibleChange={setVisible}
+                        onRegionChange={setRegionFilter}
+                        onSelect={(c) => setSelectedId(c.id)}
+                        onFlyTo={(c) => mapRef.current?.flyTo(c.lat, c.lng, 15)}
+                        satelliteMode={satelliteMode}
+                        onSatelliteModeChange={setSatelliteMode}
+                    />
                 </div>
 
-                {/* 우측 탭 */}
-                <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: 6 }}>
-                    <div className="glass-panel" style={{
-                        borderRadius: 9, padding: '5px 6px',
-                        flexShrink: 0, display: 'flex', gap: 4
-                    }}>
-                        {([
-                            { key: 'events' as const, label: '⚡ 이벤트' },
-                            { key: 'search' as const, label: '🔍 포렌식 검색' },
-                        ] as const).map(({ key, label }) => (
-                            <button key={key} onClick={() => setRightTab(key)}
-                                style={{
-                                    flex: 1, padding: '6px 4px', borderRadius: 6, fontSize: 11,
-                                    fontWeight: rightTab === key ? 800 : 500, cursor: 'pointer',
-                                    background: rightTab === key ? 'rgba(64,196,255,0.14)' : 'transparent',
-                                    border: `1px solid ${rightTab === key ? 'rgba(64,196,255,0.35)' : 'transparent'}`,
-                                    color: rightTab === key ? '#40c4ff' : '#475569', transition: 'all 0.15s',
-                                }}>
-                                {label}
-                            </button>
-                        ))}
-                    </div>
-                    <div style={{ flex: 1, minHeight: 0, display: rightTab === 'events' ? 'flex' : 'none', flexDirection: 'column' }}>
-                        <EventPanel items={ALL_CCTV} onLocate={handleLocate} />
-                    </div>
-                    <div style={{ flex: 1, minHeight: 0, display: rightTab === 'search' ? 'flex' : 'none', flexDirection: 'column' }}>
-                        <ForensicSearch allCctv={ALL_CCTV} onLocate={handleLocate} />
-                    </div>
+                {/* 중앙 지도 (Deck.gl + MapLibre Fusion) */}
+                <div style={{ flex: 1, position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <CctvMap
+                        ref={mapRef}
+                        items={allCctv.filter(c => visible[c.type] && regionFilter[c.region])}
+                        onSelect={(c) => setSelectedId(c.id)}
+                        satelliteMode={satelliteMode}
+                        satelliteOpacity={satelliteOpacity}
+                        sentinelDate={sentinelDate}
+                        onLastUpdated={setSatLastUpdated}
+                        onLoadingChange={setIsSatLoading}
+                    />
+
+                    {/* 플로팅 위성 제어 패널 */}
+                    <SatelliteControlPanel
+                        mode={satelliteMode}
+                        onModeChange={setSatelliteMode}
+                        opacity={satelliteOpacity}
+                        onOpacityChange={setSatelliteOpacity}
+                        sentinelDate={sentinelDate}
+                        onSentinelDateChange={setSentinelDate}
+                        lastUpdated={satLastUpdated}
+                        isLoading={isSatLoading}
+                    />
+                </div>
+
+                {/* 우측 패널 (LIVE EVENTS + 분석 패널) */}
+                <div style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <EventPanel
+                        items={allCctv}
+                        onLocate={handleLocate}
+                    />
+
+                    {/* 선택 시 하단 상세 패널 (필요시) */}
+                    {selectedCctv && (
+                        <div className="glass-panel" style={{ borderRadius: 12, padding: 14 }}>
+                            <CameraDetail
+                                camera={{
+                                    id: selectedCctv.id,
+                                    name: selectedCctv.name,
+                                    region: selectedCctv.region as any,
+                                    location: selectedCctv.address,
+                                    position: { lat: selectedCctv.lat, lng: selectedCctv.lng },
+                                    status: selectedCctv.status === '정상' ? 'normal' : 'offline',
+                                    resolution: '4K UHD',
+                                    fps: 30,
+                                    installedAt: '2023-01-01',
+                                    lastMaintenance: '2024-03-01',
+                                    streamUrl: selectedCctv.streamUrl
+                                }}
+                                onClose={() => setSelectedId(null)}
+                                onAnalysis={() => setShowForensic(true)}
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {selectedCctv && (
-                <CctvModal cctv={selectedCctv} onClose={() => setSelectedCctv(null)} />
+            {/* 디자인 일관성을 위한 전역 CSS 보강 */}
+            <style jsx global>{`
+                :root {
+                    --neon-blue: #40c4ff;
+                    --neon-green: #00e676;
+                    --neon-amber: #ffb300;
+                    --neon-red: #ff3333;
+                    --neon-purple: #7c4dff;
+                    --border-glass: rgba(255, 255, 255, 0.08);
+                }
+                .glass-panel {
+                    background: rgba(13, 25, 48, 0.7);
+                    backdrop-filter: blur(20px);
+                    border: 1px solid var(--border-glass);
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+                }
+                .badge {
+                    font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 5px;
+                    border: 1px solid transparent;
+                }
+                .badge-blue { background: rgba(64,196,255,0.1); color: var(--neon-blue); border-color: rgba(64,196,255,0.2); }
+                .badge-green { background: rgba(0,230,118,0.1); color: var(--neon-green); border-color: rgba(0,230,118,0.2); }
+                .badge-amber { background: rgba(255,179,0,0.1); color: var(--neon-amber); border-color: rgba(255,179,0,0.2); }
+                .badge-red { background: rgba(255,51,51,0.1); color: var(--neon-red); border-color: rgba(255,51,51,0.2); }
+                .badge-purple { background: rgba(124,77,255,0.1); color: var(--neon-purple); border-color: rgba(124,77,255,0.2); }
+                
+                .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+            `}</style>
+
+            {showForensic && selectedCctv && (
+                <ForensicModal
+                    cctv={selectedCctv}
+                    onClose={() => setShowForensic(false)}
+                />
             )}
-        </div>
+        </main>
     );
 }

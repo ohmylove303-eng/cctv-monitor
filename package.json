@@ -9,22 +9,31 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.2.11",
+    "@deck.gl/geo-layers": "^9.2.11",
+    "@deck.gl/layers": "^9.2.11",
+    "@deck.gl/react": "^9.2.11",
+    "@loaders.gl/3d-tiles": "^4.3.4",
+    "@loaders.gl/core": "^4.3.4",
+    "hls.js": "^1.5.15",
+    "lucide-react": "^0.462.0",
+    "maplibre-gl": "^4.7.1",
+    "next": "14.2.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "next": "14.2.18",
-    "maplibre-gl": "^4.7.1",
-    "lucide-react": "^0.462.0",
-    "hls.js": "^1.5.15"
+    "react-map-gl": "^8.1.0",
+    "satellite.js": "^6.0.2",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
-    "tailwindcss": "^3.4.1",
     "postcss": "^8",
-    "autoprefixer": "^10.0.1"
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
   }
 }

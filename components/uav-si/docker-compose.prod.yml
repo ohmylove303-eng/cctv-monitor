@@ -1,0 +1,109 @@
+# docker-compose.prod.yml — UAV v3.4 Ultimate (L2-A 적용)
+# =========================================================
+# [L2-A 맹점 보완]:
+#   문제: depends_on은 컨테이너 '시작' 순서만 보장
+#         DB/Redis가 실제 연결 수락 전 백엔드가 구동 →
+#         DB 연결 실패 → CrashLoopBackOff
+#   해결: healthcheck + condition: service_healthy
+#         → DB가 pg_isready 통과한 후에만 백엔드 시작
+#         → Redis가 PONG 응답한 후에만 백엔드 시작
+
+version: "3.9"
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-uav_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB:-uav_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # [L2-A 핵심] DB 실제 Ready 검증
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uav_user} -d ${POSTGRES_DB:-uav_db}"]
+      interval:     5s
+      timeout:      5s
+      retries:      5
+      start_period: 10s  # 초기 부팅 여유 시간
+
+  # ── Redis ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # [L2-A 핵심] Redis PONG 응답 검증
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval:     5s
+      timeout:      3s
+      retries:      5
+      start_period: 5s
+
+  # ── Backend ───────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-uav_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-uav_db}
+      REDIS_URL:    redis://redis:6379/0
+      SECRET_KEY:   ${SECRET_KEY}
+      ENVIRONMENT:  production
+    # [L2-A 핵심] 컨테이너 '시작'이 아닌 '실제 Ready' 상태 조건
+    depends_on:
+      db:
+        condition: service_healthy   # pg_isready 통과 후 시작
+      redis:
+        condition: service_healthy   # PONG 응답 후 시작
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval:     10s
+      timeout:       5s
+      retries:       3
+      start_period: 15s
+    deploy:
+      replicas: 2          # 무중단 롤링 배포 (L3)
+      update_config:
+        parallelism:    1  # 한 번에 1개씩 교체
+        delay:         10s # 교체 간격
+        order: start-first # 새 컨테이너 시작 후 구 컨테이너 종료
+      restart_policy:
+        condition:   on-failure
+        max_attempts: 3
+
+  # ── Frontend ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://api.uav.example.com}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy  # 백엔드 Ready 후 시작
+
+  # ── Nginx ─────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - certbot_data:/var/www/certbot:ro
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  certbot_data:
