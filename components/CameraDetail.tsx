@@ -15,9 +15,10 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
     const color = getStatusColor(camera.status);
     const videoRef = useRef<HTMLVideoElement>(null);
     const [hlsError, setHlsError] = useState(false);
+    const isYouTube = camera.streamUrl?.includes('youtube.com') || camera.streamUrl?.includes('youtu.be');
 
     useEffect(() => {
-        if (!camera.streamUrl || !videoRef.current) return;
+        if (!camera.streamUrl || !videoRef.current || isYouTube) return;
 
         let hls: Hls | null = null;
         setHlsError(false);
@@ -141,13 +142,22 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
                 }}
             >
                 {camera.streamUrl && !hlsError ? (
-                    <video
-                        ref={videoRef}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        autoPlay
-                        muted
-                        playsInline
-                    />
+                    isYouTube ? (
+                        <iframe
+                            src={camera.streamUrl}
+                            style={{ width: '100%', height: '100%', border: 'none' }}
+                            allow="autoplay; encrypted-media"
+                            allowFullScreen
+                        />
+                    ) : (
+                        <video
+                            ref={videoRef}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            autoPlay
+                            muted
+                            playsInline
+                        />
+                    )
                 ) : (
                     <>
                         <div
