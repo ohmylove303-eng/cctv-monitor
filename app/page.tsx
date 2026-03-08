@@ -64,14 +64,14 @@ export default function DashboardPage() {
                         const newItem: CctvItem = {
                             id: d.id,
                             name: d.name,
-                            type: (d.id.startsWith('G-T') || d.id.includes('traffic')) ? 'traffic' : (d.id.includes('fire') ? 'fire' : 'crime'),
+                            type: 'traffic', // ITS API 데이터는 모두 교통 CCTV
                             status: d.status === 'online' ? '정상' : (d.status === 'offline' ? '고장' : '점검중'),
                             region: d.region === '인천' ? '인천' : '김포',
                             district: d.region,
                             address: d.name,
                             operator: d.operator || 'System',
                             streamUrl: d.streamUrl || '',
-                            hlsUrl: d.streamUrl,
+                            hlsUrl: d.streamUrl || '',
                             lat: d.coordinates[1],
                             lng: d.coordinates[0],
                         };

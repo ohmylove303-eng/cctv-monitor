@@ -81,10 +81,10 @@ export default function SatelliteControlPanel({
                                         : 'rgba(6,182,212,0.25)'
                                     : 'rgba(255,255,255,0.04)',
                             border: `1px solid ${mode === key
-                                    ? key === 'off'
-                                        ? 'rgba(100,116,139,0.5)'
-                                        : 'rgba(64,196,255,0.55)'
-                                    : 'rgba(255,255,255,0.08)'
+                                ? key === 'off'
+                                    ? 'rgba(100,116,139,0.5)'
+                                    : 'rgba(64,196,255,0.55)'
+                                : 'rgba(255,255,255,0.08)'
                                 }`,
                             color:
                                 mode === key
@@ -202,11 +202,7 @@ export default function SatelliteControlPanel({
                     * PLANET_API_KEY 필요
                 </div>
             )}
-            {mode === 'sentinel' && (
-                <div style={{ fontSize: 9, color: '#334155', marginTop: 4 }}>
-                    * SENTINEL_INSTANCE_ID 필요
-                </div>
-            )}
+
             {mode === 'gk2a' && (
                 <div style={{ fontSize: 9, color: '#334155', marginTop: 4 }}>
                     * KMA_API_KEY 필요 · 2분 자동 갱신
