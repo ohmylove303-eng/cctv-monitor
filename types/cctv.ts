@@ -30,6 +30,7 @@ export interface LayerVisibility {
 export interface RegionFilter {
     김포: boolean;
     인천: boolean;
+    고속국도: boolean;
 }
 
 // ─── 포렌식 분석 결과 타입 ───────────────────────────────────────────────────

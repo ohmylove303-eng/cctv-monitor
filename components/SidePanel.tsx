@@ -89,8 +89,8 @@ export default function SidePanel({
                     }}>
                         지역 필터
                     </div>
-                    {(['김포', '인천'] as const).map(r => {
-                        const rColor = r === '김포' ? '#10b981' : '#06b6d4';
+                    {(['김포', '인천', '고속국도'] as const).map(r => {
+                        const rColor = r === '김포' ? '#10b981' : (r === '인천' ? '#06b6d4' : '#8b5cf6');
                         return (
                             <label key={r} style={{
                                 display: 'flex', alignItems: 'center', gap: 8,

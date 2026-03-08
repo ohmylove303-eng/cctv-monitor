@@ -7,11 +7,11 @@ export async function GET() {
     try {
         const apiKey = process.env.ITS_API_KEY || process.env.NEXT_PUBLIC_ITS_API_KEY;
 
-        // 김포/인천 일대 Bounding Box (Rough estimation)
-        const minX = 126.4000;
-        const maxX = 126.8000;
-        const minY = 37.4000;
-        const maxY = 37.8000;
+        // 김포/인천 일대 Bounding Box (좀 더 타이트하게 조정)
+        const minX = 126.3500;
+        const maxX = 126.7900;
+        const minY = 37.3500;
+        const maxY = 37.8500;
 
         if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
             console.warn('[ITS API] API Key is missing. Returning empty array to seamlessly fallback to static data.');
@@ -45,13 +45,19 @@ export async function GET() {
             const lng = parseFloat(item.coordx || item.lng || item.longitude);
             const lat = parseFloat(item.coordy || item.lat || item.latitude);
 
+            // Mixed Content (HTTPS -> HTTP) 차단 해결을 위해 ITS M3U8 주소의 스킴을 강제로 https로 변환
+            let secureStreamUrl = item.cctvurl || item.streamUrl || null;
+            if (secureStreamUrl && secureStreamUrl.startsWith('http://')) {
+                secureStreamUrl = secureStreamUrl.replace('http://', 'https://');
+            }
+
             return {
                 id: item.cctvname || item.cctvId || Math.random().toString(36).substr(2, 9),
                 name: item.cctvname || item.cctvNm || 'Unknown CCTV',
-                region: item.cctvname?.includes('인천') ? '인천' : (item.cctvname?.includes('김포') ? '김포' : '국도'),
+                region: item.cctvname?.includes('인천') ? '인천' : (item.cctvname?.includes('김포') ? '김포' : '고속국도'),
                 status: 'online', // ITS API에서 내려오는 영상은 기본적으로 online 간주
                 coordinates: [lng, lat, 30],
-                streamUrl: item.cctvurl || item.streamUrl || null,
+                streamUrl: secureStreamUrl,
                 source: 'National-ITS'
             };
         }).filter((c: any) => !isNaN(c.coordinates[0]) && !isNaN(c.coordinates[1]) && c.streamUrl);

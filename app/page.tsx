@@ -38,7 +38,7 @@ export default function DashboardPage() {
 
     // ─── 필터 상태 ──────────────────────────────────────────────────────────
     const [visible, setVisible] = useState<LayerVisibility>({ crime: true, fire: true, traffic: true });
-    const [regionFilter, setRegionFilter] = useState<RegionFilter>({ '김포': true, '인천': true });
+    const [regionFilter, setRegionFilter] = useState<RegionFilter>({ '김포': true, '인천': true, '고속국도': true });
 
     // ─── 위성 옵션 (S-Loop OS vFinal) ──────────────────────────────────────────
     const [satelliteMode, setSatelliteMode] = useState<SatelliteMode>('off');
@@ -66,8 +66,8 @@ export default function DashboardPage() {
                             name: d.name,
                             type: 'traffic', // ITS API 데이터는 모두 교통 CCTV
                             status: d.status === 'online' ? '정상' : (d.status === 'offline' ? '고장' : '점검중'),
-                            region: d.region === '인천' ? '인천' : '김포',
-                            district: d.region,
+                            region: d.region || '고속국도',
+                            district: d.region || '고속국도',
                             address: d.name,
                             operator: d.operator || 'System',
                             streamUrl: d.streamUrl || '',
