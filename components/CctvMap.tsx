@@ -244,9 +244,10 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
 
         items.forEach(cam => {
             const color = TYPE_COLOR[cam.type] ?? '#94a3b8';
-            const border = STATUS_BORDER[cam.status] ?? 'rgba(148,163,184,0.4)';
+            const statusColor = STATUS_BORDER[cam.status] ?? 'rgba(148,163,184,0.4)';
             const icon = cam.type === 'crime' ? '📷' : cam.type === 'fire' ? '🚒' : '🚦';
             const hasStream = !!(cam.hlsUrl || cam.streamUrl);
+            const isITS = cam.source === 'National-ITS';
 
             const wrapper = document.createElement('div');
             wrapper.style.cssText = `
@@ -260,8 +261,8 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
             diamond.style.cssText = `
                 width:28px;height:28px;
                 position:absolute;top:4px;left:4px;
-                background:${color}22;
-                border:2px solid ${border};
+                background:${color}33;
+                border:2px solid ${color};
                 border-radius:50% 50% 50% 0;
                 transform:rotate(-45deg);
                 pointer-events:none;
@@ -275,24 +276,43 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                 transform:rotate(45deg);font-size:13px;
                 line-height:1;pointer-events:none;
                 display:flex;align-items:center;justify-content:center;
-                width:100%;height:100%;
+                width:100%;height:100%;text-shadow:0 1px 3px rgba(0,0,0,0.8);
             `;
-            inner.textContent = hasStream ? icon : '⚫';
+            inner.textContent = icon;
             diamond.appendChild(inner);
 
+            wrapper.appendChild(diamond);
+
+            // ITS 뱃지 추가
+            if (isITS) {
+                const itsBadge = document.createElement('div');
+                itsBadge.textContent = 'ITS';
+                itsBadge.style.cssText = `
+                    position:absolute;top:-6px;right:-10px;
+                    background:#1d4ed8;color:#fff;
+                    font-size:9px;font-weight:900;
+                    padding:2px 4px;border-radius:4px;
+                    border:1px solid rgba(255,255,255,0.4);
+                    pointer-events:none;z-index:3;
+                    letter-spacing:0.05em;
+                    box-shadow:0 0 8px rgba(29,78,216,0.9);
+                    transform: scale(0.9);
+                `;
+                wrapper.appendChild(itsBadge);
+            }
+
+            // 상태 및 스트림 점찍기
             if (hasStream) {
                 const dot = document.createElement('div');
                 dot.style.cssText = `
                     position:absolute;bottom:-1px;right:-1px;
-                    width:7px;height:7px;border-radius:50%;
-                    background:#22c55e;border:1.5px solid #020617;
+                    width:9px;height:9px;border-radius:50%;
+                    background:${statusColor};border:1.5px solid #020617;
                     pointer-events:none;z-index:2;
-                    animation:pulse 2s ease-in-out infinite;
+                    ${cam.status === '정상' ? 'animation:pulse 2s ease-in-out infinite;' : ''}
                 `;
                 wrapper.appendChild(dot);
             }
-
-            wrapper.appendChild(diamond);
 
             wrapper.addEventListener('mouseenter', () => {
                 diamond.style.background = `${color}44`;
@@ -410,142 +430,78 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     // ─── 위성 레이어 관리 ────────────────────────────────────────────────
     useEffect(() => {
         const map = mapRef.current;
-        if (!map) return;
+        if (!map || !mapReadyRef.current) return;
 
-        // map 로드 완료 대기
-        const applyLayer = async () => {
-            if (!mapReadyRef.current) return;
+        // [동기화 흐름 1] React State(satelliteMode) 변경 감지 -> Maplibre 기존 Layer 완전 삭제
+        removeSatLayers(map);
 
-            // 기존 위성 레이어 전부 제거
-            removeSatLayers(map);
+        if (satelliteMode === 'off') return; // 'OFF' 상태 시 조기종료
 
-            if (satelliteMode === 'off') return;
+        // [동기화 흐름 2] 변경된 위성 모드에 맞춰 새로운 API 타일 소스 추가
+        const applySatelliteLayer = async () => {
+            try {
+                let tileUrl = '';
 
-            if (satelliteMode === 'gk2a') {
-                onLoadingChange?.(true);
-
-                const doFetch = async () => {
-                    try {
-                        const res = await fetch('/api/satellite/gk2a', { cache: 'no-store' });
-                        const data = await res.json() as { imageUrl: string | null; fallback?: boolean };
-
-                        const currentMap = mapRef.current;
-                        if (!currentMap || !mapReadyRef.current) return;
-
-                        // 이전 레이어 제거 후 재추가
-                        if (currentMap.getLayer(SAT_IMAGE_LAYER)) currentMap.removeLayer(SAT_IMAGE_LAYER);
-                        if (currentMap.getSource(SAT_IMAGE_SOURCE)) currentMap.removeSource(SAT_IMAGE_SOURCE);
-
-                        if (data.imageUrl) {
-                            currentMap.addSource(SAT_IMAGE_SOURCE, {
-                                type: 'image',
-                                url: data.imageUrl,
-                                coordinates: [
-                                    [116.0, 40.0],
-                                    [132.0, 40.0],
-                                    [132.0, 30.0],
-                                    [116.0, 30.0],
-                                ],
-                            });
-                            currentMap.addLayer({
-                                id: SAT_IMAGE_LAYER,
-                                type: 'raster',
-                                source: SAT_IMAGE_SOURCE,
-                                paint: { 'raster-opacity': satelliteOpacity / 100 },
-                            });
-                            onLastUpdated?.(new Date().toLocaleTimeString('ko-KR'));
-                        }
-                    } catch (err) {
-                        console.error('[GK2A layer]', err);
-                    } finally {
-                        onLoadingChange?.(false);
-                    }
-                };
-
-                await doFetch();
-                // 2분마다 자동 갱신
-                const interval = setInterval(doFetch, 120000);
-                return () => clearInterval(interval);
-            }
-
-            if (satelliteMode === 'sentinel') {
-                const date = sentinelDate ?? new Date().toISOString().split('T')[0];
-                try {
-                    const res = await fetch(`/api/satellite/sentinel?date=${date}`, { cache: 'no-store' });
-                    const data = await res.json() as {
-                        tileUrl: string | null;
-                        instanceId?: string;
-                        fallback?: boolean;
-                    };
-
-                    const currentMap = mapRef.current;
-                    if (!currentMap || !mapReadyRef.current) return;
-
-                    if (currentMap.getLayer(SAT_RASTER_LAYER)) currentMap.removeLayer(SAT_RASTER_LAYER);
-                    if (currentMap.getSource(SAT_RASTER_SOURCE)) currentMap.removeSource(SAT_RASTER_SOURCE);
-
-                    if (data.tileUrl) {
-                        currentMap.addSource(SAT_RASTER_SOURCE, {
-                            type: 'raster',
-                            tiles: [data.tileUrl],
-                            tileSize: 256,
+                if (satelliteMode === 'gk2a') {
+                    onLoadingChange?.(true);
+                    const res = await fetch('/api/satellite/gk2a', { cache: 'no-store' });
+                    const data = await res.json() as { imageUrl: string | null; fallback?: boolean };
+                    if (data.imageUrl) {
+                        map.addSource(SAT_IMAGE_SOURCE, {
+                            type: 'image',
+                            url: data.imageUrl,
+                            coordinates: [
+                                [116.0, 40.0], [132.0, 40.0],
+                                [132.0, 30.0], [116.0, 30.0],
+                            ],
                         });
-                        currentMap.addLayer({
-                            id: SAT_RASTER_LAYER,
+                        map.addLayer({
+                            id: SAT_IMAGE_LAYER,
                             type: 'raster',
-                            source: SAT_RASTER_SOURCE,
+                            source: SAT_IMAGE_SOURCE,
                             paint: { 'raster-opacity': satelliteOpacity / 100 },
                         });
+                        onLastUpdated?.(new Date().toLocaleTimeString('ko-KR'));
                     }
-                } catch (err) {
-                    console.error('[Sentinel layer]', err);
+                    onLoadingChange?.(false);
+                    return;
                 }
-            }
 
-            if (satelliteMode === 'planet') {
-                try {
-                    const res = await fetch('/api/satellite/planet', { cache: 'no-store' });
-                    const data = await res.json() as { tileUrl: string | null; fallback?: boolean };
-
-                    const currentMap = mapRef.current;
-                    if (!currentMap || !mapReadyRef.current) return;
-
-                    if (currentMap.getLayer(SAT_RASTER_LAYER)) currentMap.removeLayer(SAT_RASTER_LAYER);
-                    if (currentMap.getSource(SAT_RASTER_SOURCE)) currentMap.removeSource(SAT_RASTER_SOURCE);
-
-                    if (data.tileUrl) {
-                        currentMap.addSource(SAT_RASTER_SOURCE, {
-                            type: 'raster',
-                            tiles: [data.tileUrl],
-                            tileSize: 256,
-                        });
-                        currentMap.addLayer({
-                            id: SAT_RASTER_LAYER,
-                            type: 'raster',
-                            source: SAT_RASTER_SOURCE,
-                            paint: { 'raster-opacity': satelliteOpacity / 100 },
-                        });
-                    }
-                } catch (err) {
-                    console.error('[Planet layer]', err);
+                // NEXT_PUBLIC 환경 변수에서 무료 S2, 상용 Planet 타일 API KEY 즉시 주입 유도
+                if (satelliteMode === 'sentinel' || satelliteMode === 's2' as any) {
+                    const apiKey = process.env.NEXT_PUBLIC_S2_API_KEY || 'YOUR_S2_KEY';
+                    tileUrl = `https://sh.sentinel-hub.com/ogc/wms/${apiKey}?REQUEST=GetMap&LAYERS=TRUE_COLOR&FORMAT=image/png&WIDTH=512&HEIGHT=512&BBOX={bbox-epsg-3857}`;
+                } else if (satelliteMode === 'planet') {
+                    const apiKey = process.env.NEXT_PUBLIC_PLANET_API_KEY || 'YOUR_PLANET_KEY';
+                    tileUrl = `https://tiles.planet.com/basemaps/v1/planet-tiles/global_monthly/{z}/{x}/{y}.png?api_key=${apiKey}`;
                 }
+
+                if (tileUrl) {
+                    // [동기화 흐름 3] DOM과 MapLibre 객체를 동기화하고 레이어 주입
+                    map.addSource(SAT_RASTER_SOURCE, {
+                        type: 'raster',
+                        tiles: [tileUrl],
+                        tileSize: 256,
+                    });
+
+                    map.addLayer({
+                        id: SAT_RASTER_LAYER,
+                        type: 'raster',
+                        source: SAT_RASTER_SOURCE,
+                        paint: { 'raster-opacity': satelliteOpacity / 100 },
+                    });
+                }
+            } catch (error) {
+                console.error('[위성 레이어 추가 실패]', error);
+                if (satelliteMode === 'gk2a') onLoadingChange?.(false);
             }
         };
 
-        // 지도 아직 미로드 시: style.load 후 실행
-        if (!mapReadyRef.current) {
-            const handler = () => { applyLayer(); };
-            mapRef.current?.once('style.load', handler);
-            return;
-        }
+        applySatelliteLayer();
 
-        const cleanup = applyLayer();
-        // cleanup이 Promise<(() => void) | undefined> 이므로 처리
-        let clearFn: (() => void) | undefined;
-        (cleanup as Promise<(() => void) | undefined>)?.then?.(fn => { clearFn = fn; });
-        return () => { clearFn?.(); };
+        // [동기화 흐름 4] 뎁스에 모드 및 투명도 명시해 UI 토글과 즉시 동기화 보장
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [satelliteMode, sentinelDate]);
+    }, [satelliteMode, satelliteOpacity, sentinelDate]);
 
     // ─── 투명도 변경 시 즉시 반영 ────────────────────────────────────────
     useEffect(() => {

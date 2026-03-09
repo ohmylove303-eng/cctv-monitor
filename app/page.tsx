@@ -74,6 +74,7 @@ export default function DashboardPage() {
                             hlsUrl: d.streamUrl || '',
                             lat: d.coordinates[1],
                             lng: d.coordinates[0],
+                            source: d.source || 'National-ITS',
                         };
                         if (idx >= 0) merged[idx] = newItem;
                         else merged.push(newItem);
@@ -101,18 +102,13 @@ export default function DashboardPage() {
     };
 
     return (
-        <main style={{
-            height: '100vh', width: '100vw',
-            background: '#020617', color: '#f8fafc',
-            display: 'flex', flexDirection: 'column',
-            overflow: 'hidden', padding: 12, gap: 12,
-        }}>
+        <main className="app-container">
             {/* 상단 통합 상황 바 */}
             <StatusBar allItems={allCctv} />
 
-            <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
+            <div className="main-content">
                 {/* 좌측 패널 (CCTV 레이어 + 지역 필터 + 위성 레이어 제어) */}
-                <div style={{ width: 280, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="left-panel">
                     <SidePanel
                         allCctv={allCctv}
                         visible={visible}
@@ -127,7 +123,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* 중앙 지도 (Deck.gl + MapLibre Fusion) */}
-                <div style={{ flex: 1, position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="center-map">
                     <CctvMap
                         ref={mapRef}
                         items={allCctv.filter(c => visible[c.type] && regionFilter[c.region])}
@@ -153,7 +149,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* 우측 패널 (LIVE EVENTS + 분석 패널) */}
-                <div style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="right-panel">
                     <EventPanel
                         items={allCctv}
                         onLocate={handleLocate}

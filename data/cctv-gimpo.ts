@@ -21,8 +21,9 @@ function spread(
 ): CctvItem[] {
     const items: CctvItem[] = [];
     let seq = startSeq;
-    const gridX = [0, 0.003, -0.003, 0.006, -0.006, 0.009, -0.009, 0.001, -0.001, 0.004];
-    const gridY = [0, 0.002, -0.002, 0.004, -0.004, 0.001, -0.001, 0.005, -0.005, 0.003];
+    // 인위적인 분산(spread) 위치 오류 제거: 모든 마커를 seed의 정확한 좌표에 고정
+    const gridX = [0];
+    const gridY = [0];
 
     seeds.forEach(seed => {
         for (let k = 0; k < countPerSeed; k++) {

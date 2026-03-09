@@ -58,6 +58,9 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
         };
     }, [camera.streamUrl]);
 
+    // 스트림이 없거나 모의 데이터인 경우 (검은 화면 방지)
+    const isMockOrEmpty = !camera.streamUrl || camera.streamUrl === '#mock-stream';
+
     return (
         <div
             style={{
@@ -137,28 +140,37 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
                     justifyContent: 'center',
                     flexDirection: 'column',
                     borderBottom: '1px solid rgba(255,255,255,0.06)',
-                    position: 'relative',
                     overflow: 'hidden',
                 }}
             >
-                {camera.streamUrl && !hlsError ? (
-                    isYouTube ? (
-                        <iframe
-                            src={camera.streamUrl}
-                            style={{ width: '100%', height: '100%', border: 'none' }}
-                            allow="autoplay; encrypted-media"
-                            allowFullScreen
-                        />
-                    ) : (
-                        <video
-                            ref={videoRef}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            autoPlay
-                            muted
-                            playsInline
-                        />
-                    )
+                {isMockOrEmpty ? (
+                    <div style={{
+                        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center', color: '#64748b'
+                    }}>
+                        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ marginBottom: 8, opacity: 0.5 }}>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 1 0 002-2V8a2 1 0 00-2-2H5a2 1 0 00-2 2v8a2 1 0 002 2z" />
+                        </svg>
+                        <span style={{ fontSize: 13 }}>실시간 영상이 제공되지 않는 권역입니다</span>
+                    </div>
+                ) : isYouTube ? (
+                    <iframe
+                        src={camera.streamUrl}
+                        style={{ width: '100%', height: '100%', border: 'none' }}
+                        allow="autoplay; encrypted-media"
+                        allowFullScreen
+                    />
                 ) : (
+                    <video
+                        ref={videoRef}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        autoPlay
+                        muted
+                        playsInline
+                    />
+                )}
+
+                {!isMockOrEmpty && hlsError && (
                     <>
                         <div
                             style={{
@@ -169,8 +181,8 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
                             }}
                         />
                         <span style={{ fontSize: 32, opacity: 0.3 }}>📹</span>
-                        <span style={{ fontSize: 11, color: hlsError ? '#ef4444' : '#334155' }}>
-                            {hlsError ? '라이브 스트림 연결 실패' : (camera.streamUrl ? '스트림 로딩 중...' : 'CCTV 영상 준비중')}
+                        <span style={{ fontSize: 11, color: '#ef4444' }}>
+                            라이브 스트림 연결 실패
                         </span>
                     </>
                 )}
@@ -190,7 +202,7 @@ export default function CameraDetail({ camera, onClose, onAnalysis }: Props) {
                         오프라인
                     </span>
                 )}
-                {(camera.status === 'recording' || (camera.streamUrl && !hlsError)) && (
+                {(camera.status === 'recording' || (camera.streamUrl && !hlsError && !isMockOrEmpty)) && (
                     <span
                         style={{
                             position: 'absolute',

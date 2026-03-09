@@ -19,8 +19,8 @@ function spread(
 ): CctvItem[] {
     const items: CctvItem[] = [];
     let seq = startSeq;
-    const gx = [0, 0.003, -0.003, 0.006, -0.006, 0.002, -0.002, 0.005, -0.005, 0.001, -0.001, 0.004, -0.004];
-    const gy = [0, 0.002, -0.002, 0.004, -0.004, 0.003, -0.003, 0.001, -0.001, 0.005, -0.005, 0.002, -0.002];
+    const gx = [0];
+    const gy = [0];
 
     seeds.forEach(seed => {
         for (let k = 0; k < countPerSeed; k++) {

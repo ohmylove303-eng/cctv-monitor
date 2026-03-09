@@ -18,6 +18,7 @@ export interface CctvItem {
     installedYear?: number;
     lat: number;
     lng: number;
+    source?: string;
 }
 
 // ─── UI 상태 타입 ────────────────────────────────────────────────────────────

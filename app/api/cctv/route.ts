@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { NormalizedCctv } from '@/app/types';
+import { normalizeCctvData } from '@/utils/coordinateAdapter';
 
-export const dynamic = 'force-dynamic';
+// Vercel ISR: 60초마다 재생성하여 ITS API 호출수를 획기적으로 줄이고 Rate Limit 방지
+export const revalidate = 60;
 
 export async function GET() {
     try {
@@ -26,9 +27,9 @@ export async function GET() {
                 // ITS API는 주로 별도의 헤더를 요구하지 않으나 브라우저 명시
                 'User-Agent': 'Mozilla/5.0'
             },
-            // 캐시를 타지 않도록 설정 (실시간 영상 링크 무결성 확보)
-            cache: 'no-store'
-        });
+            // Next.js ISR 캐시 전략 적용 (60초 단위 최신화)
+            next: { revalidate: 60 }
+        } as any);
 
         if (!response.ok) {
             console.error(`[ITS API] HTTP Error: ${response.status} ${response.statusText}`);
@@ -40,34 +41,16 @@ export async function GET() {
         // 응답 구조 확인 (국가교통정보센터 JSON 규격: response.coordInsttDeta[].*)
         const cctvList = data.response?.coordInsttDeta || data.response?.data || data.list || [];
 
-        const normalized: NormalizedCctv[] = cctvList.map((item: any) => {
-            // 좌표 변환 (coordx, coordy)
-            const lng = parseFloat(item.coordx || item.lng || item.longitude);
-            const lat = parseFloat(item.coordy || item.lat || item.latitude);
-
-            // Mixed Content (HTTPS -> HTTP) 차단 해결을 위해 ITS M3U8 주소의 스킴을 강제로 https로 변환
-            let secureStreamUrl = item.cctvurl || item.streamUrl || null;
-            if (secureStreamUrl && secureStreamUrl.startsWith('http://')) {
-                secureStreamUrl = secureStreamUrl.replace('http://', 'https://');
-            }
-
-            return {
-                id: item.cctvname || item.cctvId || Math.random().toString(36).substr(2, 9),
-                name: item.cctvname || item.cctvNm || 'Unknown CCTV',
-                region: item.cctvname?.includes('인천') ? '인천' : (item.cctvname?.includes('김포') ? '김포' : '고속국도'),
-                status: 'online', // ITS API에서 내려오는 영상은 기본적으로 online 간주
-                coordinates: [lng, lat, 30],
-                streamUrl: secureStreamUrl,
-                source: 'National-ITS'
-            };
-        }).filter((c: any) => !isNaN(c.coordinates[0]) && !isNaN(c.coordinates[1]) && c.streamUrl);
+        // normalizeCctvData를 사용하여 TM -> WGS84 변환 및 스키마 정규화 처리
+        const normalized = normalizeCctvData(cctvList);
 
         console.log(`[ITS API] Successfully fetched and normalized ${normalized.length} CCTVs.`);
         return NextResponse.json(normalized);
 
     } catch (error) {
         console.error('[ITS API] Fetch Error:', error);
-        // 폴백: 빈 배열 반환하여 대시보드 중단 방지 (page.tsx에서 원본 정적 데이터 사용)
-        return NextResponse.json([]);
+        console.error('[ITS API] Fetch Error:', error);
+        // 클라이언트에서 왜 실패하는지 명확히 알기 위해 에러 메시지 반환 (기존에는 빈 배열 반환하여 원인파악 불가)
+        return NextResponse.json({ error: String(error) }, { status: 500 });
     }
 }
