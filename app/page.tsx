@@ -64,16 +64,16 @@ export default function DashboardPage() {
                         const newItem: CctvItem = {
                             id: d.id,
                             name: d.name,
-                            type: 'traffic', // ITS API 데이터는 모두 교통 CCTV
-                            status: d.status === 'online' ? '정상' : (d.status === 'offline' ? '고장' : '점검중'),
+                            type: d.type || 'traffic',
+                            status: d.status || '정상',
                             region: d.region || '고속국도',
-                            district: d.region || '고속국도',
-                            address: d.name,
+                            district: d.district || d.region || '고속국도',
+                            address: d.address || d.name,
                             operator: d.operator || 'System',
                             streamUrl: d.streamUrl || '',
-                            hlsUrl: d.streamUrl || '',
-                            lat: d.coordinates[1],
-                            lng: d.coordinates[0],
+                            hlsUrl: d.hlsUrl || d.streamUrl || '',
+                            lat: d.lat,
+                            lng: d.lng,
                             source: d.source || 'National-ITS',
                         };
                         if (idx >= 0) merged[idx] = newItem;
