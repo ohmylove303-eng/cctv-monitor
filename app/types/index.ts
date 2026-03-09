@@ -3,7 +3,8 @@ export type NormalizedCctv = {
     name: string;
     region: string;
     status: string;
-    coordinates: [number, number, number];
+    lat: number;
+    lng: number;
     streamUrl: string | null;
     source: string;
 };

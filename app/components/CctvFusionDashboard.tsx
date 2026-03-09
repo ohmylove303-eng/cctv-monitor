@@ -37,9 +37,9 @@ export default function CctvFusionDashboard() {
 
     const summary: StatusSummary = useMemo(() => ({
         total: filteredCctv.length,
-        online: filteredCctv.filter(p => p.status === 'online').length,
-        offline: filteredCctv.filter(p => p.status === 'offline').length,
-        unknown: filteredCctv.filter(p => p.status === 'unknown').length
+        online: filteredCctv.filter(p => p.status === '정상').length,
+        offline: filteredCctv.filter(p => p.status === '고장').length,
+        unknown: filteredCctv.filter(p => p.status === '점검중').length
     }), [filteredCctv]);
 
     return (

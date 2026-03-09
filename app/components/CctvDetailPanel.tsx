@@ -30,8 +30,8 @@ export default function CctvDetailPanel({ cctv, onClose }: Props) {
                 <div className="text-white">{cctv.region}</div>
 
                 <div>상태</div>
-                <div className={cctv.status === 'online' ? 'text-green-400' : 'text-red-400'}>
-                    ● {cctv.status.toUpperCase()}
+                <div className={cctv.status === '정상' ? 'text-green-400' : 'text-red-400'}>
+                    ● {cctv.status}
                 </div>
 
                 <div>데이터 소스</div>
@@ -45,15 +45,15 @@ export default function CctvDetailPanel({ cctv, onClose }: Props) {
                 <div className="text-[10px] text-gray-600 font-mono uppercase tracking-widest">실시간 좌표 (ECEF)</div>
                 <div className="flex justify-between">
                     <span className="text-gray-500">LNG:</span>
-                    <span className="text-cyan-400 font-mono">{cctv.coordinates[0].toFixed(6)}</span>
+                    <span className="text-cyan-400 font-mono">{cctv.lng.toFixed(6)}</span>
                 </div>
                 <div className="flex justify-between">
                     <span className="text-gray-500">LAT:</span>
-                    <span className="text-cyan-400 font-mono">{cctv.coordinates[1].toFixed(6)}</span>
+                    <span className="text-cyan-400 font-mono">{cctv.lat.toFixed(6)}</span>
                 </div>
                 <div className="flex justify-between">
                     <span className="text-gray-500">ALT:</span>
-                    <span className="text-cyan-400 font-mono">{cctv.coordinates[2]}m</span>
+                    <span className="text-cyan-400 font-mono">30m</span>
                 </div>
             </div>
 

@@ -135,7 +135,7 @@ export default function Map3DViewer({
             iconAtlas: '/icons/cctv-marker.png',
             iconMapping: { marker: { x: 0, y: 0, width: 128, height: 128, anchorY: 128 } },
             getIcon: () => 'marker',
-            getPosition: d => d.coordinates,
+            getPosition: d => [d.lng, d.lat, 0],
             getSize: d => d.id === selectedCctv?.id ? 45 : 30,
             onClick: ({ object }) => object && onSelectCctv(object),
             updateTriggers: { getSize: [selectedCctv?.id] }
