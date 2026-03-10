@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from 'next/server';
 
 // 국가교통정보센터(ITS) CCTV 스트림 프록시

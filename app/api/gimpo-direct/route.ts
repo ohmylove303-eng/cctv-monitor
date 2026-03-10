@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from 'next/server';
 
 // 경기도 교통정보(KTICT) 공개 API

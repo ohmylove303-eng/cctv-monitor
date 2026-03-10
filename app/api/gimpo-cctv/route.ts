@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from 'next/server';
 
 // ─── Gimpo ITS 내부 API 프록시 ─────────────────────────────────────────────

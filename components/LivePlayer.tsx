@@ -25,10 +25,93 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
   const effectiveUrl = isGGMp4
     ? `/api/hls-proxy?mp4=${btoa(streamUrl)}`
     : streamUrl;
+  const initPlayer = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !effectiveUrl) {
+      setStatus('no-stream');
+      return;
+    }
+
+    setStatus('loading');
+    setErrorMsg('');
+
+    const Hls = (await import('hls.js')).default;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 30,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000,
+        levelLoadingTimeOut: 15000,
+      });
+
+      hlsRef.current = hls;
+
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus('playing');
+        video.play().catch(() => {
+          video.muted = true;
+          video.play().catch(() => setStatus('error'));
+        });
+      });
+
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (data.fatal) {
+          const msg = `${data.type}: ${data.details}`;
+          setErrorMsg(msg);
+          setStatus('error');
+          onError?.();
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', () => {
+        setStatus('playing');
+        video.play().catch(() => {
+          video.muted = true;
+          video.play().catch(() => setStatus('error'));
+        });
+      }, { once: true });
+      video.addEventListener('error', () => {
+        setStatus('error');
+        setErrorMsg('Safari HLS 로드 실패');
+        onError?.();
+      }, { once: true });
+    } else {
+      setStatus('error');
+      setErrorMsg('이 브라우저는 HLS를 지원하지 않습니다');
+    }
+  }, [streamUrl, effectiveUrl, onError]);
+
+  useEffect(() => {
+    if (!isYouTube) {
+      initPlayer();
+    }
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [initPlayer, isYouTube]);
+
   if (isYouTube) {
     return (
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000814', overflow: 'hidden' }}>
-        {/* 스캔라인 */}
         <div style={{
           position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none',
           backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px)'
@@ -40,7 +123,6 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
           allowFullScreen
           title={title ?? cctvId ?? 'CCTV'}
         />
-        {/* LIVE 배지 */}
         <div style={{
           position: 'absolute', top: 9, left: 9, zIndex: 10,
           background: '#ef4444', color: 'white', fontSize: 9, fontWeight: 900,
@@ -68,92 +150,6 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
     );
   }
 
-  const initPlayer = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || !effectiveUrl) {
-      setStatus('no-stream');
-      return;
-    }
-
-    setStatus('loading');
-    setErrorMsg('');
-
-    // HLS.js 동적 import (SSR 회피)
-    const Hls = (await import('hls.js')).default;
-
-    // 기존 HLS 인스턴스 정리
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    // HLS.js 지원 유무 확인
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 30,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 10,
-        fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 15000,
-        levelLoadingTimeOut: 15000,
-      });
-
-      hlsRef.current = hls;
-
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setStatus('playing');
-        video.play().catch(() => {
-          // autoplay blocked → muted play
-          video.muted = true;
-          video.play().catch(() => setStatus('error'));
-        });
-      });
-
-      hls.on(Hls.Events.ERROR, (_evt, data) => {
-        if (data.fatal) {
-          const msg = `${data.type}: ${data.details}`;
-          setErrorMsg(msg);
-          setStatus('error');
-          onError?.();
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari 네이티브 HLS
-      video.src = streamUrl;
-      video.addEventListener('loadedmetadata', () => {
-        setStatus('playing');
-        video.play().catch(() => {
-          video.muted = true;
-          video.play().catch(() => setStatus('error'));
-        });
-      }, { once: true });
-      video.addEventListener('error', () => {
-        setStatus('error');
-        setErrorMsg('Safari HLS 로드 실패');
-        onError?.();
-      }, { once: true });
-    } else {
-      setStatus('error');
-      setErrorMsg('이 브라우저는 HLS를 지원하지 않습니다');
-    }
-  }, [streamUrl, onError]);
-
-  useEffect(() => {
-    initPlayer();
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [initPlayer]);
 
   const handleRetry = () => {
     setRetryCount(c => c + 1);
