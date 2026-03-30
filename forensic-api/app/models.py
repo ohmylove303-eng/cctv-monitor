@@ -28,7 +28,7 @@ class AnalyzeResponse(BaseModel):
     result_hash: str
     chain_hash: str
     prev_hash: str
-    tsa_status: Literal["verified", "local_fallback"]
+    tsa_status: Literal["verified", "demo_fallback", "yolo_active"]
     generative_ai_used: bool = False
     quality_report: QualityReport
     events_detected: list[str]

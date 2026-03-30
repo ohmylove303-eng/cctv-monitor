@@ -109,7 +109,7 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
         timestamp: nowIso(),
         algorithm: 'nextjs-demo-yolo-fallback / synthetic-ocr / mfsr-chain',
         ...chain,
-        tsa_status: 'local_fallback',
+        tsa_status: 'demo_fallback',
         generative_ai_used: false,
         quality_report: {
             total_input: totalInput,

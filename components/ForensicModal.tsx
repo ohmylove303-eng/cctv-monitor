@@ -118,7 +118,12 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
         result_hash: String(raw.result_hash ?? raw.resultHash ?? 'N/A'),
         chain_hash: String(raw.chain_hash ?? raw.chainHash ?? 'N/A'),
         prev_hash: String(raw.prev_hash ?? raw.prevHash ?? 'N/A'),
-        tsa_status: raw.tsa_status === 'verified' ? 'verified' : 'local_fallback',
+        tsa_status:
+            raw.tsa_status === 'verified'
+                ? 'verified'
+                : raw.tsa_status === 'yolo_active'
+                    ? 'yolo_active'
+                    : 'demo_fallback',
         generative_ai_used: Boolean(raw.generative_ai_used),
         quality_report: {
             total_input: Number(qualityReport.total_input ?? qualityReport.totalInput ?? 0),
@@ -889,7 +894,7 @@ export default function ForensicModal({
 
                     {phase === 'analyzed' && analysisResult && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {analysisResult.tsa_status === 'local_fallback' && (
+                            {analysisResult.tsa_status === 'demo_fallback' && (
                                 <div
                                     style={{
                                         padding: '8px 12px',
@@ -902,6 +907,21 @@ export default function ForensicModal({
                                     }}
                                 >
                                     이 분석 결과는 외부 YOLO 서버가 아니라 내장 데모 fallback에서 생성됐습니다.
+                                </div>
+                            )}
+                            {analysisResult.tsa_status === 'yolo_active' && (
+                                <div
+                                    style={{
+                                        padding: '8px 12px',
+                                        background: 'rgba(34,197,94,0.08)',
+                                        border: '1px solid rgba(34,197,94,0.22)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        color: '#86efac',
+                                        lineHeight: 1.6,
+                                    }}
+                                >
+                                    이 분석 결과는 Render 상시 백엔드의 YOLO 모드에서 생성됐습니다.
                                 </div>
                             )}
                             <div

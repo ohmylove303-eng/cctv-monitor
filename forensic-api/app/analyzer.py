@@ -125,7 +125,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             result_hash=result_hash,
             chain_hash=chain_hash,
             prev_hash=prev_hash,
-            tsa_status="local_fallback",
+            tsa_status="demo_fallback",
             quality_report=QualityReport(
                 total_input=total_input,
                 passed=passed,
@@ -166,7 +166,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         result_hash=result_hash,
         chain_hash=chain_hash,
         prev_hash=prev_hash,
-        tsa_status="local_fallback",
+        tsa_status="yolo_active",
         quality_report=QualityReport(
             total_input=total_input,
             passed=passed,

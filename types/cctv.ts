@@ -91,7 +91,7 @@ export interface ForensicResult {
     result_hash: string;
     chain_hash: string;
     prev_hash: string;
-    tsa_status: 'verified' | 'local_fallback';
+    tsa_status: 'verified' | 'demo_fallback' | 'yolo_active';
     generative_ai_used: boolean;
     quality_report: ForensicQualityReport;
     events_detected: string[];
