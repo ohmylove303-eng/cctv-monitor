@@ -1,19 +1,52 @@
-import { CctvItem, CctvType, LayerVisibility, RegionFilter } from '@/types/cctv';
-import { getStatusColor, getStatusLabel } from '@/lib/utils';
+import { CctvItem, CctvType, LayerVisibility, RegionFilter, RoadPreset, RouteDirection, RouteScopeMode } from '@/types/cctv';
 import { SatelliteMode } from '@/components/SatelliteControlPanel';
+import { matchesRoadPreset, ROAD_PRESET_OPTIONS } from '@/lib/road-presets';
+import {
+    hasLiveTrafficStream,
+    isLiveTrafficSource,
+    isMapOnlyTrafficCamera,
+    isMapOnlyTrafficSource,
+} from '@/lib/traffic-sources';
 
 interface Props {
     allCctv: CctvItem[];
+    hiddenApproximateCount: number;
+    hiddenFlaggedCount: number;
+    hiddenDuplicateCount: number;
     visible: LayerVisibility;
     regionFilter: RegionFilter;
     onVisibleChange: (v: LayerVisibility) => void;
     onRegionChange: (r: RegionFilter) => void;
     onSelect: (c: CctvItem) => void;
     onFlyTo: (c: CctvItem) => void;
+    itsRoadOnly: boolean;
+    onItsRoadOnlyChange: (v: boolean) => void;
+    roadPreset: RoadPreset;
+    onRoadPresetChange: (v: RoadPreset) => void;
+    routeDirection: RouteDirection;
+    onRouteDirectionChange: (v: RouteDirection) => void;
+    routeSpeedKph: number;
+    onRouteSpeedKphChange: (v: number) => void;
+    routeScopeMode: RouteScopeMode;
+    onRouteScopeModeChange: (v: RouteScopeMode) => void;
+    routePlanSummary?: {
+        roadLabel: string;
+        focusCount: number;
+        bundleCount: number;
+        directionLabel: string;
+        directionSourceLabel: string;
+        immediateCount: number;
+        shortCount: number;
+        mediumCount: number;
+        scopeLabel: string;
+    } | null;
+    showMapOnlyTraffic: boolean;
+    onShowMapOnlyTrafficChange: (v: boolean) => void;
 
     // 위성 레이어 제어 (VIBE MODE)
     satelliteMode: SatelliteMode;
     onSatelliteModeChange: (m: SatelliteMode) => void;
+    availableSatelliteModes?: SatelliteMode[];
 }
 
 const TYPE_CFG: Record<CctvType, { label: string; icon: string; color: string; accent: string }> = {
@@ -23,13 +56,61 @@ const TYPE_CFG: Record<CctvType, { label: string; icon: string; color: string; a
 };
 
 export default function SidePanel({
+    hiddenApproximateCount,
+    hiddenFlaggedCount,
+    hiddenDuplicateCount,
     allCctv, visible, regionFilter,
-    onVisibleChange, onRegionChange, onSelect,
+    onVisibleChange, onRegionChange, onSelect, onFlyTo,
+    itsRoadOnly, onItsRoadOnlyChange,
+    roadPreset, onRoadPresetChange,
+    routeDirection, onRouteDirectionChange,
+    routeSpeedKph, onRouteSpeedKphChange,
+    routeScopeMode, onRouteScopeModeChange,
+    routePlanSummary = null,
+    showMapOnlyTraffic, onShowMapOnlyTrafficChange,
     satelliteMode, onSatelliteModeChange,
+    availableSatelliteModes = ['off', 'sentinel'],
 }: Props) {
-    const filteredList = allCctv.filter(
-        c => visible[c.type] && regionFilter[c.region]
-    );
+    const liveTrafficCount = allCctv.filter(hasLiveTrafficStream).length;
+    const mapOnlyTrafficCount = allCctv.filter(isMapOnlyTrafficCamera).length;
+    const sourceRank = (cam: CctvItem) => {
+        if (isLiveTrafficSource(cam.source)) {
+            return 0;
+        }
+        if (isMapOnlyTrafficSource(cam.source)) {
+            return 1;
+        }
+        return 2;
+    };
+    const filteredList = allCctv
+        .filter(
+            c => {
+                if (!regionFilter[c.region]) return false;
+
+                if (roadPreset !== 'all') {
+                    return matchesRoadPreset(c, roadPreset) && hasLiveTrafficStream(c);
+                }
+
+                if (itsRoadOnly) {
+                    return hasLiveTrafficStream(c);
+                }
+
+                if (!visible[c.type]) {
+                    return false;
+                }
+
+                if (c.type === 'traffic' && !showMapOnlyTraffic) {
+                    return hasLiveTrafficStream(c);
+                }
+
+                return true;
+            }
+        )
+        .sort((a, b) =>
+            sourceRank(a) - sourceRank(b)
+            || a.region.localeCompare(b.region, 'ko')
+            || a.name.localeCompare(b.name, 'ko')
+        );
 
     const toggle = <K extends keyof LayerVisibility>(k: K) =>
         onVisibleChange({ ...visible, [k]: !visible[k] });
@@ -89,7 +170,7 @@ export default function SidePanel({
                     }}>
                         지역 필터
                     </div>
-                    {(['김포', '인천', '고속국도'] as const).map(r => {
+                    {(['김포', '인천', '서울'] as const).map(r => {
                         const rColor = r === '김포' ? '#10b981' : (r === '인천' ? '#06b6d4' : '#8b5cf6');
                         return (
                             <label key={r} style={{
@@ -119,25 +200,268 @@ export default function SidePanel({
                     marginTop: 8, paddingTop: 10
                 }}>
                     <div style={{
+                        fontSize: 9, color: '#94a3b8', fontWeight: 700,
+                        letterSpacing: '0.1em', marginBottom: 7
+                    }}>
+                        좌표 정밀도
+                    </div>
+                    <div
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '7px 10px',
+                            borderRadius: 7,
+                            background: 'rgba(34,197,94,0.14)',
+                            border: '1px solid rgba(34,197,94,0.34)',
+                            color: '#86efac',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            marginBottom: 3,
+                        }}
+                    >
+                        <span>정밀 좌표만 운영 노출</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{allCctv.length}</span>
+                    </div>
+                    <div style={{
+                        fontSize: 9,
+                        color: '#334155',
+                        lineHeight: 1.5,
+                        marginBottom: 7,
+                    }}>
+                        근사 좌표 {hiddenApproximateCount}대는 운영 뷰에서 완전히 숨겼습니다. 현재 화면에는 공식·검증 좌표만 노출됩니다.
+                    </div>
+                    <div style={{
+                        fontSize: 9,
+                        color: '#f59e0b',
+                        lineHeight: 1.5,
+                        marginBottom: 7,
+                    }}>
+                        해상/오차 의심 ITS {hiddenFlaggedCount}대는 원본 유지 상태로 화면에서만 숨깁니다.
+                    </div>
+                    <div style={{
+                        fontSize: 9,
+                        color: '#38bdf8',
+                        lineHeight: 1.5,
+                        marginBottom: 7,
+                    }}>
+                        행안부/기관 공식 좌표 우선 기준으로 근접 중복 {hiddenDuplicateCount}대도 함께 숨겼습니다.
+                    </div>
+                </div>
+
+                <div style={{
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    marginTop: 8, paddingTop: 10
+                }}>
+                    <div style={{
+                        fontSize: 9, color: '#38bdf8', fontWeight: 700,
+                        letterSpacing: '0.1em', marginBottom: 7
+                    }}>
+                        실시간 도로 CCTV
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onItsRoadOnlyChange(!itsRoadOnly)}
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '7px 10px',
+                            borderRadius: 7,
+                            cursor: 'pointer',
+                            background: itsRoadOnly ? 'rgba(56,189,248,0.14)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${itsRoadOnly ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.06)'}`,
+                            color: itsRoadOnly ? '#7dd3fc' : '#64748b',
+                            fontSize: 11,
+                            fontWeight: itsRoadOnly ? 700 : 500,
+                            marginBottom: 3,
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <span>ITS 국도/고속도로만 보기</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{liveTrafficCount}</span>
+                    </button>
+                    <div style={{
+                        fontSize: 9,
+                        color: '#334155',
+                        lineHeight: 1.5,
+                        marginBottom: 7,
+                    }}>
+                        기본값은 실시간 ITS만 노출합니다. 지도 전용 교통 좌표는 별도 토글로 분리합니다.
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onShowMapOnlyTrafficChange(!showMapOnlyTraffic)}
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '7px 10px',
+                            borderRadius: 7,
+                            cursor: 'pointer',
+                            background: showMapOnlyTraffic ? 'rgba(148,163,184,0.12)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${showMapOnlyTraffic ? 'rgba(148,163,184,0.32)' : 'rgba(255,255,255,0.06)'}`,
+                            color: showMapOnlyTraffic ? '#cbd5e1' : '#64748b',
+                            fontSize: 11,
+                            fontWeight: showMapOnlyTraffic ? 700 : 500,
+                            marginBottom: 7,
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <span>지도 전용 교통 포함</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{mapOnlyTrafficCount}</span>
+                    </button>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 5,
+                    }}>
+                        {ROAD_PRESET_OPTIONS.map((preset) => {
+                            const count = allCctv.filter((item) => matchesRoadPreset(item, preset.id) && hasLiveTrafficStream(item)).length;
+                            const active = roadPreset === preset.id;
+                            return (
+                                <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() => onRoadPresetChange(preset.id)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 6,
+                                        padding: '6px 8px',
+                                        borderRadius: 7,
+                                        cursor: 'pointer',
+                                        background: active ? 'rgba(14,165,233,0.16)' : 'rgba(255,255,255,0.02)',
+                                        border: `1px solid ${active ? 'rgba(56,189,248,0.38)' : 'rgba(255,255,255,0.05)'}`,
+                                        color: active ? '#7dd3fc' : '#64748b',
+                                        fontSize: 10,
+                                        fontWeight: active ? 700 : 500,
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    <span>{preset.label}</span>
+                                    <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{count}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {roadPreset !== 'all' && (
+                        <div style={{
+                            marginTop: 8,
+                            padding: '8px 9px',
+                            borderRadius: 8,
+                            background: 'rgba(34,211,238,0.08)',
+                            border: '1px solid rgba(34,211,238,0.18)',
+                        }}>
+                            <div style={{ fontSize: 10, color: '#67e8f9', fontWeight: 700, marginBottom: 6 }}>
+                                도로축 추적 레이어
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginBottom: 6 }}>
+                                {[
+                                    { id: 'auto', label: '자동' },
+                                    { id: 'forward', label: '상행/정방향' },
+                                    { id: 'reverse', label: '하행/역방향' },
+                                ].map((option) => (
+                                    <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() => onRouteDirectionChange(option.id as RouteDirection)}
+                                        style={{
+                                            padding: '6px 6px',
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            background: routeDirection === option.id ? 'rgba(34,211,238,0.18)' : 'rgba(255,255,255,0.04)',
+                                            border: `1px solid ${routeDirection === option.id ? 'rgba(34,211,238,0.32)' : 'rgba(255,255,255,0.08)'}`,
+                                            color: routeDirection === option.id ? '#a5f3fc' : '#94a3b8',
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{ fontSize: 9, color: '#94a3b8' }}>예상 속도</span>
+                                <input
+                                    type="range"
+                                    min={20}
+                                    max={120}
+                                    step={10}
+                                    value={routeSpeedKph}
+                                    onChange={(event) => onRouteSpeedKphChange(Number(event.target.value))}
+                                />
+                                <span style={{ fontSize: 10, color: '#e2e8f0', fontFamily: 'monospace' }}>
+                                    {routeSpeedKph} km/h
+                                </span>
+                            </label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginTop: 8 }}>
+                                {[
+                                    { id: 'focus', label: '집중군' },
+                                    { id: 'bundle', label: '도로축' },
+                                    { id: 'network', label: '전체ITS' },
+                                ].map((option) => (
+                                    <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() => onRouteScopeModeChange(option.id as RouteScopeMode)}
+                                        style={{
+                                            padding: '6px 6px',
+                                            borderRadius: 6,
+                                            cursor: 'pointer',
+                                            background: routeScopeMode === option.id ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.04)',
+                                            border: `1px solid ${routeScopeMode === option.id ? 'rgba(16,185,129,0.32)' : 'rgba(255,255,255,0.08)'}`,
+                                            color: routeScopeMode === option.id ? '#bbf7d0' : '#94a3b8',
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div style={{ fontSize: 9, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+                                {routePlanSummary
+                                    ? `${routePlanSummary.roadLabel} · ${routePlanSummary.directionLabel}(${routePlanSummary.directionSourceLabel}) · ${routePlanSummary.scopeLabel} · 즉시 ${routePlanSummary.immediateCount}대 / 단기 ${routePlanSummary.shortCount}대 / 중기 ${routePlanSummary.mediumCount}대 / 전체 ${routePlanSummary.bundleCount}대`
+                                    : '도로축 카메라를 하나 선택하면 추적 레이어가 지도 위에 추가됩니다.'}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    marginTop: 8, paddingTop: 10
+                }}>
+                    <div style={{
                         fontSize: 9, color: '#3b82f6', fontWeight: 700,
                         letterSpacing: '0.1em', marginBottom: 7, textTransform: 'uppercase'
                     }}>
                         🛰 Satellite Layers
                     </div>
-                    {(['off', 'gk2a', 'sentinel', 'planet'] as const).map(m => (
-                        <button key={m} onClick={() => onSatelliteModeChange(m)}
-                            style={{
-                                width: '100%', textAlign: 'left', padding: '6px 10px',
-                                borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                                background: satelliteMode === m ? 'rgba(59,130,246,0.15)' : 'transparent',
-                                border: `1px solid ${satelliteMode === m ? 'rgba(59,130,246,0.4)' : 'transparent'}`,
-                                color: satelliteMode === m ? '#60a5fa' : '#475569',
-                                marginBottom: 3, fontWeight: satelliteMode === m ? 700 : 500,
-                                transition: 'all 0.1s'
-                            }}>
-                            {m === 'off' ? '비활성화' : m.toUpperCase()}
-                        </button>
-                    ))}
+                    {(['off', 'planet', 'sentinel'] as const)
+                        .filter(m => availableSatelliteModes.includes(m))
+                        .map(m => (
+                            <button key={m} onClick={() => onSatelliteModeChange(m)}
+                                style={{
+                                    width: '100%', textAlign: 'left', padding: '6px 10px',
+                                    borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                                    background: satelliteMode === m ? 'rgba(59,130,246,0.15)' : 'transparent',
+                                    border: `1px solid ${satelliteMode === m ? 'rgba(59,130,246,0.4)' : 'transparent'}`,
+                                    color: satelliteMode === m ? '#60a5fa' : '#475569',
+                                    marginBottom: 3, fontWeight: satelliteMode === m ? 700 : 500,
+                                    transition: 'all 0.1s'
+                                }}>
+                                {m === 'off' ? '비활성화' : m === 'planet' ? 'PLANET SKYSAT' : 'SENTINEL-2'}
+                            </button>
+                        ))}
                 </div>
             </div>
 
@@ -154,9 +478,10 @@ export default function SidePanel({
                 </div>
                 {filteredList.map(cam => {
                     const cfg = TYPE_CFG[cam.type];
-                    const sColor = getStatusColor(cam.status as 'normal');
+                    const liveTrafficSource = isLiveTrafficSource(cam.source);
+                    const localTrafficSource = isMapOnlyTrafficSource(cam.source);
                     return (
-                        <div key={cam.id} onClick={() => onSelect(cam)}
+                        <div key={cam.id} onClick={() => { onSelect(cam); onFlyTo(cam); }}
                             style={{
                                 padding: '9px 11px', borderRadius: 8, cursor: 'pointer',
                                 background: 'rgba(255,255,255,0.025)',
@@ -176,13 +501,45 @@ export default function SidePanel({
                                 display: 'flex', justifyContent: 'space-between',
                                 alignItems: 'center', marginBottom: 4
                             }}>
-                                <span style={{
-                                    fontSize: 9, fontFamily: 'monospace',
-                                    color: '#334155', background: 'rgba(255,255,255,0.04)',
-                                    padding: '1px 5px', borderRadius: 3
-                                }}>
-                                    {cam.id}
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                                    <span style={{
+                                        fontSize: 9, fontFamily: 'monospace',
+                                        color: '#334155', background: 'rgba(255,255,255,0.04)',
+                                        padding: '1px 5px', borderRadius: 3
+                                    }}>
+                                        {cam.id}
+                                    </span>
+                                    {liveTrafficSource && (
+                                        <span style={{
+                                            fontSize: 8,
+                                            fontWeight: 800,
+                                            color: '#7dd3fc',
+                                            background: 'rgba(56,189,248,0.12)',
+                                            border: '1px solid rgba(56,189,248,0.26)',
+                                            padding: '1px 5px',
+                                            borderRadius: 999,
+                                            letterSpacing: '0.08em',
+                                            flexShrink: 0,
+                                        }}>
+                                            ITS LIVE
+                                        </span>
+                                    )}
+                                    {localTrafficSource && (
+                                        <span style={{
+                                            fontSize: 8,
+                                            fontWeight: 800,
+                                            color: '#94a3b8',
+                                            background: 'rgba(148,163,184,0.10)',
+                                            border: '1px solid rgba(148,163,184,0.2)',
+                                            padding: '1px 5px',
+                                            borderRadius: 999,
+                                            letterSpacing: '0.08em',
+                                            flexShrink: 0,
+                                        }}>
+                                            지도 전용
+                                        </span>
+                                    )}
+                                </div>
                                 <span style={{
                                     fontSize: 9, fontWeight: 700,
                                     color: cam.status === '정상' ? '#22c55e' : cam.status === '점검중' ? '#f59e0b' : '#ef4444',
@@ -196,7 +553,13 @@ export default function SidePanel({
                             }}>
                                 {cfg.icon} {cam.name}
                             </div>
-                            <div style={{ fontSize: 9, color: '#475569' }}>{cam.district}</div>
+                            <div style={{ fontSize: 9, color: '#475569' }}>
+                                {liveTrafficSource
+                                    ? `${cam.district} · 실시간 도로`
+                                    : localTrafficSource
+                                        ? `${cam.district} · 좌표 전용`
+                                        : cam.district}
+                            </div>
                         </div>
                     );
                 })}

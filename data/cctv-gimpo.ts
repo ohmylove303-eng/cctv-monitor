@@ -63,9 +63,15 @@ const st = (i: number): CctvStatus => {
     return '정상';
 };
 
-// 스트림 URL — 방범/소방 카메라는 실제 스트림 없음 (교통 카메라만 ITS에서 실시간 연동)
-const STREAMS: string[] = new Array(12).fill('');
+// 스트림 URL — 방범/소방 카메라는 실제 스트림 없음, 교통 카메라도 ITS 미매칭 시 Fallback 영상 제공
+const STREAMS = [
+    YT('XiL5PEoEmx4'), YT('bqrDKBdx8Bo'), YT('rGvblMlXaP0'),
+    YT('WiZ47KTkyTs'), YT('4Iu3N4JXFLE'), YT('aqz-KE-bpKQ'),
+    '', '', '', '', '', '', '',
+];
 const sv = (i: number) => STREAMS[i % STREAMS.length];
+// 로컬 교통 CCTV는 지도 좌표 기준점만 제공하고, 실시간 재생은 National-ITS/실시간 소스에서만 허용한다.
+const trafficSv = (_i: number) => '';
 const yr = (i: number) => 2018 + (i % 7);      // 2018~2024
 
 // ─── 방범 CCTV 시드 (35개 구역) ─────────────────────────────────────────────
@@ -148,7 +154,7 @@ const crime = spread(CRIME_SEEDS, 'crime', st, 'KP-CR-', 1, crimeOp, '2K QHD', y
 const fire = spread(FIRE_SEEDS, 'fire', st, 'KP-FI-', 1, fireOp, '4K UHD', yr, sv, 2);
 
 // 교통 20개 시드 × 1대 = 20대 (교차로당 1대)
-const traffic = spread(TRAFFIC_SEEDS, 'traffic', st, 'KP-TR-', 1, trafficOp, '4K UHD', yr, sv, 1);
+const traffic = spread(TRAFFIC_SEEDS, 'traffic', st, 'KP-TR-', 1, trafficOp, '4K UHD', yr, trafficSv as any, 1);
 
 export const gimpoCctv: CctvItem[] = [...crime, ...fire, ...traffic];
 // 총 100대: 방범 50 + 소방 30 + 교통 20

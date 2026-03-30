@@ -1,0 +1,18 @@
+[Unit]
+Description=ITS Forensic API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/its-forensic-api
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+Environment=VENV_DIR=/opt/its-forensic-api/.venv
+EnvironmentFile=/opt/its-forensic-api/.env
+ExecStart=/opt/its-forensic-api/start.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

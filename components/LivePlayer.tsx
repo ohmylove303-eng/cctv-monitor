@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { toPlayableStreamUrl } from '@/lib/stream';
 
 interface Props {
   streamUrl: string;
@@ -19,12 +20,7 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
 
   // ── URL 타입 판별 ───────────────────────────────────────────────────────────
   const isYouTube = streamUrl.includes('youtube.com/embed') || streamUrl.includes('youtu.be');
-  const isGGMp4 = streamUrl.includes('gitsview.gg.go.kr');  // 경기도 GG KTICT MP4
-
-  // gitsview.gg.go.kr MP4 → /api/hls-proxy?mp4=BASE64 (mixed-content 우회)
-  const effectiveUrl = isGGMp4
-    ? `/api/hls-proxy?mp4=${btoa(streamUrl)}`
-    : streamUrl;
+  const effectiveUrl = toPlayableStreamUrl(streamUrl);
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !effectiveUrl) {
@@ -58,7 +54,7 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
 
       hlsRef.current = hls;
 
-      hls.loadSource(streamUrl);
+      hls.loadSource(effectiveUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -78,7 +74,7 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl;
+      video.src = effectiveUrl;
       video.addEventListener('loadedmetadata', () => {
         setStatus('playing');
         video.play().catch(() => {
@@ -95,7 +91,7 @@ export default function LivePlayer({ streamUrl, title, cctvId, onError }: Props)
       setStatus('error');
       setErrorMsg('이 브라우저는 HLS를 지원하지 않습니다');
     }
-  }, [streamUrl, effectiveUrl, onError]);
+  }, [effectiveUrl, onError]);
 
   useEffect(() => {
     if (!isYouTube) {

@@ -57,7 +57,7 @@ export function getEventTypeLabel(type: string): string {
 
 // ─── 통계 계산 ────────────────────────────────────────────────────────────────
 export function computeRegionStats(cameras: Camera[], events: ForensicEvent[]): RegionStats[] {
-    const regions = ['김포', '인천'] as const;
+    const regions = ['김포', '인천', '서울'] as const;
     return regions.map((region) => {
         const regionCams = cameras.filter((c) => c.region === region);
         const regionEvents = events.filter((e) => e.region === region);

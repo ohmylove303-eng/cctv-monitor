@@ -1,7 +1,10 @@
 // ─── CCTV 핵심 타입 ──────────────────────────────────────────────────────────
 export type CctvType = 'crime' | 'fire' | 'traffic';
 export type CctvStatus = '정상' | '점검중' | '고장';
-export type CctvRegion = '김포' | '인천';
+export type CctvRegion = '김포' | '인천' | '서울';
+export type RoadPreset = 'all' | 'route48' | 'ring1' | 'airport' | 'secondGyeongin' | 'incheonBridge' | 'outer2';
+export type RouteDirection = 'auto' | 'forward' | 'reverse';
+export type RouteScopeMode = 'focus' | 'bundle' | 'network';
 
 export interface CctvItem {
     id: string;
@@ -12,13 +15,50 @@ export interface CctvItem {
     district: string;
     address: string;
     operator: string;
-    streamUrl: string;   // YouTube embed URL (데모)
+    streamUrl: string;
     hlsUrl?: string;     // 실제 HLS .m3u8 URL (김포 ITS 연동)
     resolution?: string;
     installedYear?: number;
     lat: number;
     lng: number;
     source?: string;
+    coordinateSource?: 'official' | 'its_api' | 'seed' | 'unknown';
+    coordinateVerified?: boolean;
+    coordinateNote?: string;
+}
+
+export interface ForensicTrackCamera {
+    id: string;
+    name: string;
+    region: CctvRegion;
+    address: string;
+    lat: number;
+    lng: number;
+    source?: string;
+    streamUrl: string;
+    expectedEtaMinutes?: number;
+    timeWindowLabel?: string;
+    travelOrder?: number;
+    isRouteFocus?: boolean;
+}
+
+export interface ForensicRouteContext {
+    roadPreset: RoadPreset;
+    roadLabel: string;
+    originId: string;
+    direction: 'forward' | 'reverse';
+    directionSource: 'manual' | 'token_hint' | 'density';
+    speedKph: number;
+    scopeMode: RouteScopeMode;
+    scopeLabel: string;
+    bundleCount: number;
+    focusCount: number;
+    prioritizedIds: string[];
+    focusIds: string[];
+    immediateIds: string[];
+    shortIds: string[];
+    mediumIds: string[];
+    followupIds: string[];
 }
 
 // ─── UI 상태 타입 ────────────────────────────────────────────────────────────
@@ -31,7 +71,7 @@ export interface LayerVisibility {
 export interface RegionFilter {
     김포: boolean;
     인천: boolean;
-    고속국도: boolean;
+    서울: boolean;
 }
 
 // ─── 포렌식 분석 결과 타입 ───────────────────────────────────────────────────
@@ -57,4 +97,42 @@ export interface ForensicResult {
     events_detected: string[];
     confidence: number;
     verdict: string;
+    vehicle_count?: number;
+    target_plate?: string;
+    target_color?: string;
+    target_vehicle_type?: string;
+    plate_candidates?: string[];
+}
+
+export interface ForensicTrackingHit {
+    id: string;
+    cctv_id: string;
+    cctv_name: string;
+    region: CctvRegion;
+    address: string;
+    timestamp: string;
+    confidence: number;
+    plate?: string;
+    color?: string;
+    vehicle_type?: string;
+    expected_eta_minutes?: number;
+    time_window_label?: string;
+    travel_assessment?: 'fast' | 'on_time' | 'delayed' | 'unknown';
+    travel_assessment_label?: string;
+}
+
+export interface ForensicTrackingResult {
+    tracking_id: string;
+    status: 'queued' | 'processing' | 'completed' | 'error';
+    searched_cameras: number;
+    hits: ForensicTrackingHit[];
+    message?: string;
+}
+
+export interface ForensicStatusResponse {
+    enabled: boolean;
+    provider: 'configured' | 'fallback' | 'missing';
+    reachable?: boolean;
+    httpStatus?: number;
+    message: string;
 }

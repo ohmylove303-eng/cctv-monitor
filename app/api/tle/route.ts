@@ -15,13 +15,16 @@ export async function GET() {
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         const tles = [];
 
+        const targetSats = ['SENTINEL'];
         for (let i = 0; i < lines.length - 2; i += 3) {
-            tles.push({
-                name: lines[i],
-                line1: lines[i + 1],
-                line2: lines[i + 2]
-            });
-            if (tles.length >= 500) break;
+            const satName = lines[i].toUpperCase();
+            if (targetSats.some(t => satName.includes(t))) {
+                tles.push({
+                    name: lines[i],
+                    line1: lines[i + 1],
+                    line2: lines[i + 2]
+                });
+            }
         }
 
         return NextResponse.json(tles);

@@ -5,9 +5,10 @@ import { CctvItem } from '@/types/cctv';
 interface Props { allItems: CctvItem[]; }
 
 export default function StatusBar({ allItems }: Props) {
-    const [time, setTime] = useState(new Date());
+    const [time, setTime] = useState<Date | null>(null);
 
     useEffect(() => {
+        setTime(new Date());
         const t = setInterval(() => setTime(new Date()), 1000);
         return () => clearInterval(t);
     }, []);
@@ -17,12 +18,12 @@ export default function StatusBar({ allItems }: Props) {
     const inspect = allItems.filter(c => c.status === '점검중').length;
     const fault = allItems.filter(c => c.status === '고장').length;
 
-    const hh = time.getHours().toString().padStart(2, '0');
-    const mm = time.getMinutes().toString().padStart(2, '0');
-    const ss = time.getSeconds().toString().padStart(2, '0');
-    const dateStr = time.toLocaleDateString('ko-KR', {
+    const hh = time ? time.getHours().toString().padStart(2, '0') : '--';
+    const mm = time ? time.getMinutes().toString().padStart(2, '0') : '--';
+    const ss = time ? time.getSeconds().toString().padStart(2, '0') : '--';
+    const dateStr = time ? time.toLocaleDateString('ko-KR', {
         year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
-    });
+    }) : 'Loading';
 
     return (
         <div className="glass-panel" style={{

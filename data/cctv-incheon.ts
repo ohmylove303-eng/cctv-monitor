@@ -63,6 +63,7 @@ const STREAMS = [
     '', '', '', '', '', '', '',
 ];
 const sv = (i: number) => STREAMS[i % STREAMS.length];
+const trafficSv = (_i: number) => '';
 const yr = (i: number) => 2018 + (i % 7);
 
 // ─── 방범 CCTV 시드 (50개 구역) ──────────────────────────────────────────────
@@ -208,7 +209,7 @@ const crime = spread(CRIME_SEEDS, 'crime', st, 'IC-CR-', 1, crimeOp, '2K QHD', y
 const fire = spread(FIRE_SEEDS, 'fire', st, 'IC-FI-', 1, fireOp, '4K UHD', yr, sv, 1);
 
 // 교통 35개 시드 × 1대 = 35대 (교차로당 1대)
-const trafficHwy = spread(TRAFFIC_SEEDS, 'traffic', st, 'IC-TR-', 1, roadOp, '4K UHD', yr, sv, 1);
+const trafficHwy = spread(TRAFFIC_SEEDS, 'traffic', st, 'IC-TR-', 1, roadOp, '4K UHD', yr, trafficSv, 1);
 
 export const incheonCctv: CctvItem[] = [...crime, ...fire, ...trafficHwy];
 // 총 215대: 방범 150 + 소방 30 + 교통 35

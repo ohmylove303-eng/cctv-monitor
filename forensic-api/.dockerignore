@@ -1,0 +1,9 @@
+.DS_Store
+.env
+.venv
+.venv313
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+deploy/oracle

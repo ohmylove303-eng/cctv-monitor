@@ -1,0 +1,117 @@
+{
+  "dryRun": false,
+  "templatePath": "/Users/jungsunghoon/cctv-monitor/data/official-cctv-coordinates.csv",
+  "siteApprovalsPath": "/Users/jungsunghoon/cctv-monitor/data/review-needed-p1-sites.csv",
+  "rowApprovalsPath": "/Users/jungsunghoon/cctv-monitor/data/review-needed-p1-rows.csv",
+  "approvedIds": [
+    "IC-CR-088",
+    "IC-CR-089",
+    "IC-CR-090",
+    "IC-CR-121",
+    "IC-CR-122",
+    "IC-CR-123",
+    "KP-CR-001",
+    "KP-CR-002"
+  ],
+  "promotedRows": [
+    {
+      "id": "KP-CR-001",
+      "name": "사우동 방범 CCTV-1",
+      "region": "김포",
+      "matched_mng_no": "202540900000802659",
+      "matched_score": "216",
+      "matched_distance_m": "35",
+      "note": "P1 수동 승인 승격, mng=202540900000802659, score=216, dist=35m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "KP-CR-002",
+      "name": "사우동 방범 CCTV-2",
+      "region": "김포",
+      "matched_mng_no": "202540900000802659",
+      "matched_score": "216",
+      "matched_distance_m": "35",
+      "note": "P1 수동 승인 승격, mng=202540900000802659, score=216, dist=35m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-088",
+      "name": "계양구 임학동 방범 CCTV-1",
+      "region": "인천",
+      "matched_mng_no": "202535500000800436",
+      "matched_score": "216",
+      "matched_distance_m": "39",
+      "note": "P1 수동 승인 승격, mng=202535500000800436, score=216, dist=39m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-089",
+      "name": "계양구 임학동 방범 CCTV-2",
+      "region": "인천",
+      "matched_mng_no": "202535500000800436",
+      "matched_score": "216",
+      "matched_distance_m": "39",
+      "note": "P1 수동 승인 승격, mng=202535500000800436, score=216, dist=39m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-090",
+      "name": "계양구 임학동 방범 CCTV-3",
+      "region": "인천",
+      "matched_mng_no": "202535500000800436",
+      "matched_score": "216",
+      "matched_distance_m": "39",
+      "note": "P1 수동 승인 승격, mng=202535500000800436, score=216, dist=39m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-121",
+      "name": "중구 내동 방범 CCTV-1",
+      "region": "인천",
+      "matched_mng_no": "202534900000800152",
+      "matched_score": "216",
+      "matched_distance_m": "64",
+      "note": "P1 수동 승인 승격, mng=202534900000800152, score=216, dist=64m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-122",
+      "name": "중구 내동 방범 CCTV-2",
+      "region": "인천",
+      "matched_mng_no": "202534900000800152",
+      "matched_score": "216",
+      "matched_distance_m": "64",
+      "note": "P1 수동 승인 승격, mng=202534900000800152, score=216, dist=64m, source=site+row, checked=P1 2차 추천 승인"
+    },
+    {
+      "id": "IC-CR-123",
+      "name": "중구 내동 방범 CCTV-3",
+      "region": "인천",
+      "matched_mng_no": "202534900000800152",
+      "matched_score": "216",
+      "matched_distance_m": "64",
+      "note": "P1 수동 승인 승격, mng=202534900000800152, score=216, dist=64m, source=site+row, checked=P1 2차 추천 승인"
+    }
+  ],
+  "skippedRows": [],
+  "appliedSources": {
+    "site": 8,
+    "row": 8
+  },
+  "outputColumns": [
+    "id",
+    "name",
+    "address",
+    "region",
+    "source",
+    "seed_lat",
+    "seed_lng",
+    "lat",
+    "lng",
+    "status",
+    "source_document",
+    "note",
+    "matched_mng_no",
+    "matched_manager",
+    "matched_purpose",
+    "matched_address",
+    "matched_distance_m",
+    "matched_score",
+    "matched_camera_count",
+    "match_strategy"
+  ]
+}

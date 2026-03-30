@@ -1,6 +1,6 @@
 // ─── CCTV 카메라 타입 ───────────────────────────────────────────────────────
 export type CameraStatus = 'normal' | 'alert' | 'offline' | 'recording';
-export type Region = '김포' | '인천';
+export type Region = '김포' | '인천' | '서울';
 export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type ForensicEventType =
     | 'motion_detected'
@@ -23,6 +23,7 @@ export interface Camera {
     region: Region;
     location: string;
     position: GeoPoint;
+    cameraType?: 'crime' | 'fire' | 'traffic';
     status: CameraStatus;
     resolution: string;
     fps: number;
@@ -30,6 +31,11 @@ export interface Camera {
     lastMaintenance: string;
     streamUrl?: string;
     thumbnailUrl?: string;
+    source?: string;
+    operator?: string;
+    coordinateSource?: 'official' | 'its_api' | 'seed' | 'unknown';
+    coordinateVerified?: boolean;
+    coordinateNote?: string;
 }
 
 // ─── 포렌식 이벤트 (MFSR 기반, AI 전면 배제) ──────────────────────────────

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { CctvItem } from '@/types/cctv';
 
 interface CctvEvent {
@@ -20,31 +20,16 @@ const SEV_COLOR = {
     low: 'var(--neon-green)',
 };
 
-const EVENT_MESSAGES = {
-    high: ['움직임 감지 — 비인가 인원 접근', '영상 신호 단절 — 즉시 확인', '카메라 훼손 감지'],
-    medium: ['야간 조도 부족 — 품질 저하', '강풍으로 방향 틀어짐', '네트워크 패킷 손실 15%'],
-    low: ['정기 점검 예정 (내일 10:00)', '펌웨어 업데이트 완료', '백업 스트림 전환 완료'],
+const STATUS_EVENT_MAP = {
+    고장: {
+        severity: 'high' as const,
+        message: '영상 신호 단절 또는 카메라 장애가 감지되었습니다.',
+    },
+    점검중: {
+        severity: 'medium' as const,
+        message: '장비 점검 상태입니다. 유지보수 진행 여부를 확인하세요.',
+    },
 };
-
-function makeDummy(items: CctvItem[]): CctvEvent {
-    const item = items[Math.floor(Math.random() * items.length)];
-    const sevs = ['high', 'medium', 'low'] as const;
-    // Weight toward low/medium
-    const weights = [0.15, 0.35, 0.5];
-    const r = Math.random();
-    const sev = sevs[r < 0.15 ? 0 : r < 0.5 ? 1 : 2];
-    const msgs = EVENT_MESSAGES[sev];
-    return {
-        id: Math.random().toString(36).slice(2),
-        cctvId: item.id,
-        cctvName: item.name,
-        region: item.region,
-        type: item.type,
-        severity: sev,
-        message: msgs[Math.floor(Math.random() * msgs.length)],
-        time: new Date(),
-    };
-}
 
 interface Props {
     items: CctvItem[];
@@ -52,17 +37,27 @@ interface Props {
 }
 
 export default function EventPanel({ items, onLocate }: Props) {
-    const [events, setEvents] = useState<CctvEvent[]>([]);
     const [selected, setSelected] = useState<string | null>(null);
+    const events = useMemo<CctvEvent[]>(
+        () => {
+            const eventItems = items.filter(
+                (item): item is CctvItem & { status: '고장' | '점검중' } =>
+                    item.status === '고장' || item.status === '점검중'
+            );
 
-    useEffect(() => {
-        if (!items.length) return;
-        setEvents([makeDummy(items), makeDummy(items), makeDummy(items)]);
-        const id = setInterval(() => {
-            setEvents(prev => [makeDummy(items), ...prev].slice(0, 30));
-        }, 9000);
-        return () => clearInterval(id);
-    }, [items]);
+            return eventItems.slice(0, 30).map((item) => ({
+                id: `EVENT-${item.id}`,
+                cctvId: item.id,
+                cctvName: item.name,
+                region: item.region,
+                type: item.type,
+                severity: STATUS_EVENT_MAP[item.status].severity,
+                message: STATUS_EVENT_MAP[item.status].message,
+                time: new Date(),
+            }));
+        },
+        [items]
+    );
 
     const highCount = events.filter(e => e.severity === 'high').length;
     const medCount = events.filter(e => e.severity === 'medium').length;

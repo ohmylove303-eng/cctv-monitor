@@ -58,7 +58,6 @@ export async function GET() {
         // <data> 블록들 파싱
         const blocks = innerXml.match(/<data>([\s\S]*?)<\/data>/g) ?? [];
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cameras: any[] = blocks
             .map(block => {
                 const lat = parseFloat(extractTag('coordy', block));

@@ -1,322 +1,1257 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { CctvItem, ForensicResult } from '@/types/cctv';
 
-import { analyzeCctv } from '@/lib/forensic';
+import { useMemo, useRef, useState } from 'react';
+import type {
+    CctvItem,
+    ForensicRouteContext,
+    ForensicResult,
+    ForensicTrackCamera,
+    ForensicTrackingResult,
+} from '@/types/cctv';
+import {
+    analyzeCctv,
+    buildForensicTrackScope,
+    supportsVehicleForensic,
+    trackVehicle,
+    waitForTrackingResult,
+} from '@/lib/forensic';
+import { assessTravelWindow } from '@/lib/route-monitoring';
 
-interface Props { cctv: CctvItem; onClose: () => void; }
+interface Props {
+    cctv: CctvItem;
+    allCctv?: CctvItem[];
+    trackScopeOverride?: ForensicTrackCamera[];
+    routeFocusSummary?: {
+        roadLabel: string;
+        bundleCount: number;
+        focusCount: number;
+        directionLabel: string;
+        speedKph: number;
+        directionSourceLabel: string;
+        immediateCount: number;
+        shortCount: number;
+        mediumCount: number;
+        scopeLabel: string;
+    } | null;
+    routeContext?: ForensicRouteContext | null;
+    backendEnabled?: boolean;
+    backendProvider?: 'configured' | 'fallback' | 'missing';
+    backendMessage?: string | null;
+    onLocate?: (cctvId: string) => void;
+    onClose: () => void;
+}
 
-type Phase = 'idle' | 'uploading' | 'analyzing' | 'done' | 'error';
+type Phase = 'idle' | 'analyzing' | 'analyzed' | 'tracking' | 'tracked' | 'error';
 
-const STEPS = [
-    { label: 'EQ12 서버 HLS 스트림 프레임 요청 중…', pct: 15 },
-    { label: 'YOLOv8n-SLoop 차량 객체 검출 중…', pct: 40 },
-    { label: 'EasyOCR 번호판 영역 추출 중…', pct: 60 },
-    { label: '차량 면적 기반 품질 필터링 중…', pct: 85 },
-    { label: '해시 체인 결합 및 결과 응답 대기 중…', pct: 99 },
+type BundleAnalysisHit = {
+    cctv_id: string;
+    cctv_name: string;
+    region: CctvItem['region'];
+    confidence: number;
+    vehicle_count: number;
+    plate_candidates: string[];
+    target_plate?: string;
+    target_color?: string;
+    target_vehicle_type?: string;
+    expected_eta_minutes?: number;
+    time_window_label?: string;
+    is_route_focus?: boolean;
+};
+
+type BundleAnalysisSummary = {
+    processed: number;
+    total: number;
+    scopeLabel: string;
+    hits: BundleAnalysisHit[];
+    suggestedPlate?: string;
+    suggestedColor?: string;
+    suggestedVehicleType?: string;
+};
+
+const DETECTION_STEPS = [
+    { label: 'ITS 실시간 HLS 스트림 프레임 확보 중…', pct: 15 },
+    { label: 'YOLO 차량 객체 검출 수행 중…', pct: 40 },
+    { label: '번호판 후보 OCR 정합도 계산 중…', pct: 65 },
+    { label: '차량 색상/차종 피처 벡터 정리 중…', pct: 85 },
+    { label: '포렌식 해시 체인과 결과 증적화 중…', pct: 99 },
 ];
 
-export default function ForensicModal({ cctv, onClose }: Props) {
+const TRACK_STEPS = [
+    { label: 'ITS 실시간 카메라 목록 수집 중…', pct: 18 },
+    { label: 'YOLO 검출 결과와 차량 속성 비교 중…', pct: 42 },
+    { label: '번호판/색상/차종 유사도 스코어링 중…', pct: 68 },
+    { label: '카메라 간 통과 순서와 시간축 정렬 중…', pct: 88 },
+    { label: '추적 결과 확정 및 리포트 생성 중…', pct: 99 },
+];
+
+const BUNDLE_SCOPE_LIMITS: Record<'focus' | 'bundle' | 'network', number> = {
+    focus: 6,
+    bundle: 8,
+    network: 10,
+};
+
+const VEHICLE_TYPES = ['미지정', '세단', 'SUV', '트럭', '버스', '오토바이', '밴', '택시'];
+const VEHICLE_COLORS = ['미지정', '흰색', '검정', '은색', '회색', '파랑', '빨강', '노랑', '초록', '갈색'];
+
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function generateId(prefix: string) {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return `${prefix}-${crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}`;
+}
+
+function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
+    const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
+        ? raw.quality_report as Record<string, unknown>
+        : {};
+
+    return {
+        job_id: String(raw.job_id ?? raw.jobId ?? generateId('analysis')),
+        cctv_id: String(raw.cctv_id ?? raw.cctvId ?? cctv.id),
+        timestamp: String(raw.timestamp ?? new Date().toISOString()),
+        algorithm: String(raw.algorithm ?? 'YOLO vehicle detect / OCR / MFSR chain'),
+        input_hash: String(raw.input_hash ?? raw.inputHash ?? 'N/A'),
+        result_hash: String(raw.result_hash ?? raw.resultHash ?? 'N/A'),
+        chain_hash: String(raw.chain_hash ?? raw.chainHash ?? 'N/A'),
+        prev_hash: String(raw.prev_hash ?? raw.prevHash ?? 'N/A'),
+        tsa_status: raw.tsa_status === 'verified' ? 'verified' : 'local_fallback',
+        generative_ai_used: Boolean(raw.generative_ai_used),
+        quality_report: {
+            total_input: Number(qualityReport.total_input ?? qualityReport.totalInput ?? 0),
+            passed: Number(qualityReport.passed ?? 0),
+            dropped: Number(qualityReport.dropped ?? 0),
+            threshold: Number(qualityReport.threshold ?? 0),
+        },
+        events_detected: Array.isArray(raw.events_detected)
+            ? raw.events_detected.map(String)
+            : Array.isArray(raw.events)
+                ? raw.events.map(String)
+                : ['vehicle_detected'],
+        confidence: Number(raw.confidence ?? raw.score ?? 0),
+        verdict: String(raw.verdict ?? raw.message ?? '차량 분석 완료'),
+        vehicle_count: Number(raw.vehicle_count ?? raw.vehicleCount ?? 0),
+        target_plate: typeof raw.target_plate === 'string' ? raw.target_plate : undefined,
+        target_color: typeof raw.target_color === 'string' ? raw.target_color : undefined,
+        target_vehicle_type: typeof raw.target_vehicle_type === 'string' ? raw.target_vehicle_type : undefined,
+        plate_candidates: Array.isArray(raw.plate_candidates) ? raw.plate_candidates.map(String) : [],
+    };
+}
+
+function normalizeTrackingResult(
+    raw: Record<string, unknown>,
+    scope: ForensicTrackCamera[],
+    routeFocusSummary: Props['routeFocusSummary'],
+): ForensicTrackingResult {
+    const rawHits = Array.isArray(raw.hits)
+        ? raw.hits
+        : Array.isArray(raw.matches)
+            ? raw.matches
+            : Array.isArray(raw.results)
+                ? raw.results
+                : [];
+
+    const originTime = typeof raw.origin_timestamp === 'string'
+        ? new Date(raw.origin_timestamp).getTime()
+        : null;
+
+    const hits = rawHits.map((entry, index) => {
+        const hit = (entry ?? {}) as Record<string, unknown>;
+        const cctvId = String(hit.cctv_id ?? hit.camera_id ?? hit.cctvId ?? hit.cameraId ?? '');
+        const cctvName = String(hit.cctv_name ?? hit.camera_name ?? hit.cctvName ?? hit.cameraName ?? '');
+        const matchedCamera = scope.find((camera) => camera.id === cctvId || camera.name === cctvName);
+        const expectedEtaMinutes = typeof hit.expected_eta_minutes === 'number'
+            ? hit.expected_eta_minutes
+            : typeof hit.expectedEtaMinutes === 'number'
+                ? hit.expectedEtaMinutes
+                : matchedCamera?.expectedEtaMinutes;
+        const timeWindowLabel = typeof hit.time_window_label === 'string'
+            ? hit.time_window_label
+            : typeof hit.timeWindowLabel === 'string'
+                ? hit.timeWindowLabel
+                : matchedCamera?.timeWindowLabel;
+        const observedMinutes =
+            originTime && typeof hit.timestamp === 'string'
+                ? Math.round((new Date(String(hit.timestamp)).getTime() - originTime) / 60000)
+                : undefined;
+        const travelAssessment = assessTravelWindow(expectedEtaMinutes, observedMinutes);
+
+        return {
+            id: String(hit.id ?? `${cctvId || cctvName || 'hit'}-${index}`),
+            cctv_id: matchedCamera?.id ?? cctvId,
+            cctv_name: matchedCamera?.name ?? (cctvName || '알 수 없는 카메라'),
+            region: matchedCamera?.region ?? '김포',
+            address: matchedCamera?.address ?? String(hit.address ?? ''),
+            timestamp: String(hit.timestamp ?? hit.detected_at ?? new Date().toISOString()),
+            confidence: Number(hit.confidence ?? hit.score ?? 0),
+            plate: typeof hit.plate === 'string' ? hit.plate : undefined,
+            color: typeof hit.color === 'string' ? hit.color : undefined,
+            vehicle_type: typeof hit.vehicle_type === 'string'
+                ? hit.vehicle_type
+                : typeof hit.vehicleType === 'string'
+                    ? hit.vehicleType
+                    : undefined,
+            expected_eta_minutes: expectedEtaMinutes,
+            time_window_label: timeWindowLabel,
+            travel_assessment: travelAssessment.code,
+            travel_assessment_label: travelAssessment.label,
+        };
+    });
+
+    const rawStatus = String(raw.status ?? (hits.length ? 'completed' : 'processing'));
+    const status: ForensicTrackingResult['status'] =
+        rawStatus === 'queued' || rawStatus === 'processing' || rawStatus === 'completed' || rawStatus === 'error'
+            ? rawStatus
+            : hits.length
+                ? 'completed'
+                : 'processing';
+
+    return {
+        tracking_id: String(raw.tracking_id ?? raw.trackingId ?? raw.job_id ?? generateId('tracking')),
+        status,
+        searched_cameras: Number(raw.searched_cameras ?? raw.camera_count ?? scope.length),
+        hits,
+        message: typeof raw.message === 'string'
+            ? raw.message
+            : hits.length
+                ? `${hits.length}건의 차량 이동 후보를 찾았습니다.${routeFocusSummary ? ` ${routeFocusSummary.roadLabel} 기준 집중 구간 우선 정렬이 적용되었습니다.` : ''}`
+                : '일치하는 차량 이동 후보가 없습니다.',
+    };
+}
+
+function buildBundleAnalysisSummary(
+    rawResults: Array<ForensicResult & { cctvMeta: ForensicTrackCamera }>,
+    routeFocusSummary: Props['routeFocusSummary'],
+): BundleAnalysisSummary {
+    const sorted = [...rawResults]
+        .sort((left, right) =>
+            (right.confidence - left.confidence)
+            || ((left.cctvMeta.travelOrder ?? Number.MAX_SAFE_INTEGER) - (right.cctvMeta.travelOrder ?? Number.MAX_SAFE_INTEGER))
+        );
+
+    const suggestedPlate = sorted.find((item) => (item.plate_candidates?.length ?? 0) > 0)?.plate_candidates?.[0]
+        || sorted.find((item) => item.target_plate)?.target_plate;
+    const suggestedColor = sorted.find((item) => item.target_color)?.target_color ?? undefined;
+    const suggestedVehicleType = sorted.find((item) => item.target_vehicle_type)?.target_vehicle_type ?? undefined;
+
+    return {
+        processed: rawResults.length,
+        total: rawResults.length,
+        scopeLabel: routeFocusSummary?.scopeLabel ?? '우선 그룹',
+        suggestedPlate: suggestedPlate || undefined,
+        suggestedColor,
+        suggestedVehicleType,
+        hits: sorted.map((item) => ({
+            cctv_id: item.cctv_id,
+            cctv_name: item.cctvMeta.name,
+            region: item.cctvMeta.region,
+            confidence: item.confidence,
+            vehicle_count: item.vehicle_count ?? 0,
+            plate_candidates: item.plate_candidates ?? [],
+            target_plate: item.target_plate,
+            target_color: item.target_color,
+            target_vehicle_type: item.target_vehicle_type,
+            expected_eta_minutes: item.cctvMeta.expectedEtaMinutes,
+            time_window_label: item.cctvMeta.timeWindowLabel,
+            is_route_focus: item.cctvMeta.isRouteFocus,
+        })),
+    };
+}
+
+function exportEvidence(payload: unknown, filename: string) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+    });
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = filename;
+    anchor.click();
+}
+
+export default function ForensicModal({
+    cctv,
+    allCctv = [],
+    trackScopeOverride,
+    routeFocusSummary = null,
+    routeContext = null,
+    backendEnabled = false,
+    backendProvider = 'missing',
+    backendMessage,
+    onLocate,
+    onClose,
+}: Props) {
     const [phase, setPhase] = useState<Phase>('idle');
-    const [result, setResult] = useState<ForensicResult | null>(null);
     const [stepIdx, setStepIdx] = useState(0);
     const [progress, setProgress] = useState(0);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<ForensicResult | null>(null);
+    const [bundleAnalysisSummary, setBundleAnalysisSummary] = useState<BundleAnalysisSummary | null>(null);
+    const [trackingResult, setTrackingResult] = useState<ForensicTrackingResult | null>(null);
+    const [targetPlate, setTargetPlate] = useState('');
+    const [targetColor, setTargetColor] = useState('미지정');
+    const [targetVehicleType, setTargetVehicleType] = useState('미지정');
+    const runIdRef = useRef(0);
 
-    const start = async () => {
-        setPhase('analyzing');
-        setStepIdx(0);
-        setProgress(0);
+    const isCurrentCameraSupported = supportsVehicleForensic(cctv);
+    const trackScope = useMemo(
+        () => trackScopeOverride && trackScopeOverride.length > 0 ? trackScopeOverride : buildForensicTrackScope(allCctv),
+        [allCctv, trackScopeOverride]
+    );
+    const bundleScope = useMemo(() => {
+        const limit = routeContext
+            ? BUNDLE_SCOPE_LIMITS[routeContext.scopeMode]
+            : BUNDLE_SCOPE_LIMITS.focus;
+        return trackScope.slice(0, limit);
+    }, [routeContext, trackScope]);
+    const currentStreamUrl = cctv.hlsUrl || cctv.streamUrl || '';
+    const effectiveTargetPlate = targetPlate.trim()
+        || analysisResult?.target_plate
+        || bundleAnalysisSummary?.suggestedPlate
+        || '';
+    const effectiveTargetColor = targetColor !== '미지정'
+        ? targetColor
+        : analysisResult?.target_color
+            || bundleAnalysisSummary?.suggestedColor
+            || '';
+    const effectiveTargetVehicleType = targetVehicleType !== '미지정'
+        ? targetVehicleType
+        : analysisResult?.target_vehicle_type
+            || bundleAnalysisSummary?.suggestedVehicleType
+            || '';
 
-        try {
-            // Simulate steps for UI UX while background fetch happens
-            const uiPromise = (async () => {
-                for (let i = 0; i < STEPS.length; i++) {
-                    await new Promise(r => setTimeout(r, 800));
-                    setStepIdx(i);
-                    setProgress(STEPS[i].pct);
-                }
-            })();
-
-            const apiPromise = analyzeCctv(cctv.id, cctv.streamUrl || "");
-
-            const [_, resultData] = await Promise.all([uiPromise, apiPromise]);
-
-            if (resultData.status === 'ok') {
-                setResult(resultData as any);
-                setPhase('done');
-                setProgress(100);
-            } else {
-                throw new Error(resultData.message);
+    const runStepSequence = async (steps: typeof DETECTION_STEPS, runId: number) => {
+        for (let index = 0; index < steps.length; index += 1) {
+            await sleep(600);
+            if (runIdRef.current !== runId) {
+                return;
             }
-        } catch (e) {
-            console.error(e);
-            setPhase('error');
+            setStepIdx(index);
+            setProgress(steps[index].pct);
         }
     };
 
-    const reset = () => { setPhase('idle'); setResult(null); setProgress(0); };
+    const startAnalysis = async () => {
+        setErrorMessage(null);
+        setTrackingResult(null);
+        setBundleAnalysisSummary(null);
+
+        if (!backendEnabled) {
+            setPhase('error');
+            setErrorMessage(backendMessage || '차량 분석 서버가 아직 연결되지 않았습니다.');
+            return;
+        }
+
+        if (!isCurrentCameraSupported) {
+            setPhase('error');
+            setErrorMessage('현재 카메라는 ITS 실시간 차량 분석 대상이 아닙니다. National-ITS 또는 실시간 ITS 소스만 분석할 수 있습니다.');
+            return;
+        }
+
+        setPhase('analyzing');
+        setStepIdx(0);
+        setProgress(0);
+        runIdRef.current += 1;
+        const runId = runIdRef.current;
+
+        try {
+            const [_, rawResult] = await Promise.all([
+                runStepSequence(DETECTION_STEPS, runId),
+                analyzeCctv(
+                    cctv.id,
+                    currentStreamUrl,
+                    targetPlate.trim() || undefined,
+                    targetColor !== '미지정' ? targetColor : undefined,
+                    targetVehicleType !== '미지정' ? targetVehicleType : undefined,
+                    routeContext || undefined,
+                ),
+            ]);
+
+            setAnalysisResult(normalizeAnalysisResult(rawResult, cctv));
+            setPhase('analyzed');
+            setProgress(100);
+        } catch (error) {
+            console.error(error);
+            setPhase('error');
+            setErrorMessage(error instanceof Error ? error.message : '차량 분석 중 오류가 발생했습니다.');
+        }
+    };
+
+    const startBundleAnalysis = async () => {
+        setErrorMessage(null);
+        setAnalysisResult(null);
+        setTrackingResult(null);
+        setBundleAnalysisSummary(null);
+
+        if (!backendEnabled) {
+            setPhase('error');
+            setErrorMessage(backendMessage || '차량 분석 서버가 아직 연결되지 않았습니다.');
+            return;
+        }
+
+        if (bundleScope.length === 0) {
+            setPhase('error');
+            setErrorMessage('현재 도로축 범위에 순차 분석할 ITS 실시간 카메라가 없습니다.');
+            return;
+        }
+
+        setPhase('analyzing');
+        setStepIdx(0);
+        setProgress(0);
+        runIdRef.current += 1;
+        const runId = runIdRef.current;
+
+        try {
+            const results: Array<ForensicResult & { cctvMeta: ForensicTrackCamera }> = [];
+
+            for (let index = 0; index < bundleScope.length; index += 1) {
+                if (runIdRef.current !== runId) {
+                    return;
+                }
+
+                const camera = bundleScope[index];
+                setStepIdx(Math.min(index, DETECTION_STEPS.length - 1));
+                setProgress(Math.round(((index + 1) / bundleScope.length) * 100));
+
+                const rawResult = await analyzeCctv(
+                    camera.id,
+                    camera.streamUrl,
+                    targetPlate.trim() || undefined,
+                    targetColor !== '미지정' ? targetColor : undefined,
+                    targetVehicleType !== '미지정' ? targetVehicleType : undefined,
+                    routeContext || undefined,
+                );
+
+                results.push({
+                    ...normalizeAnalysisResult(rawResult, cctv),
+                    cctv_id: camera.id,
+                    cctvMeta: camera,
+                });
+
+                await sleep(180);
+            }
+
+            if (runIdRef.current !== runId) {
+                return;
+            }
+
+            setBundleAnalysisSummary(buildBundleAnalysisSummary(results, routeFocusSummary));
+            setPhase('analyzed');
+            setProgress(100);
+        } catch (error) {
+            console.error(error);
+            setPhase('error');
+            setErrorMessage(error instanceof Error ? error.message : '노선 그룹 순차 분석 중 오류가 발생했습니다.');
+        }
+    };
+
+    const startTracking = async () => {
+        setErrorMessage(null);
+
+        if (!backendEnabled) {
+            setPhase('error');
+            setErrorMessage(backendMessage || '차량 추적 서버가 아직 연결되지 않았습니다.');
+            return;
+        }
+
+        if (trackScope.length === 0) {
+            setPhase('error');
+            setErrorMessage('추적 가능한 ITS 실시간 카메라가 없습니다.');
+            return;
+        }
+
+        if (!effectiveTargetPlate && !effectiveTargetColor && !effectiveTargetVehicleType) {
+            setPhase('error');
+            setErrorMessage('차량번호, 색상, 차종 중 하나 이상을 지정해야 추적할 수 있습니다.');
+            return;
+        }
+
+        setPhase('tracking');
+        setStepIdx(0);
+        setProgress(0);
+        runIdRef.current += 1;
+        const runId = runIdRef.current;
+
+        try {
+            const [_, initialResult] = await Promise.all([
+                runStepSequence(TRACK_STEPS, runId),
+                trackVehicle({
+                    plate: effectiveTargetPlate || undefined,
+                    color: effectiveTargetColor || undefined,
+                    vehicleType: effectiveTargetVehicleType || undefined,
+                    originCctvId: cctv.id,
+                    cctvList: trackScope,
+                    routeContext: routeContext || undefined,
+                }),
+            ]);
+
+            let normalized = normalizeTrackingResult(initialResult, trackScope, routeFocusSummary);
+
+            if ((normalized.status === 'queued' || normalized.status === 'processing') && normalized.tracking_id) {
+                const finalResult = await waitForTrackingResult(normalized.tracking_id);
+                normalized = normalizeTrackingResult(finalResult, trackScope, routeFocusSummary);
+            }
+
+            setTrackingResult(normalized);
+            setPhase('tracked');
+            setProgress(100);
+        } catch (error) {
+            console.error(error);
+            setPhase('error');
+            setErrorMessage(error instanceof Error ? error.message : '차량 추적 중 오류가 발생했습니다.');
+        }
+    };
+
+    const resetWorkflow = () => {
+        runIdRef.current += 1;
+        setPhase('idle');
+        setStepIdx(0);
+        setProgress(0);
+        setErrorMessage(null);
+        setAnalysisResult(null);
+        setBundleAnalysisSummary(null);
+        setTrackingResult(null);
+    };
+
+    const statusPill = isCurrentCameraSupported
+        ? 'ITS 실시간 분석 가능'
+        : '로컬/비실시간 소스';
+    const backendPill = !backendEnabled
+        ? '미설정'
+        : backendProvider === 'fallback'
+            ? '데모 fallback'
+            : '실전 백엔드';
 
     return (
-        <div onClick={onClose} style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-            backdropFilter: 'blur(12px)', zIndex: 11000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-        }}>
-            <div onClick={e => e.stopPropagation()}
+        <div
+            onClick={onClose}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0,0,0,0.85)',
+                backdropFilter: 'blur(12px)',
+                zIndex: 11000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 16,
+            }}
+        >
+            <div
+                onClick={(event) => event.stopPropagation()}
                 className="glass-panel"
                 style={{
-                    borderRadius: 14, width: '100%', maxWidth: 520, overflow: 'hidden',
-                    border: '1px solid rgba(99,102,241,0.35)',
-                    boxShadow: '0 0 50px rgba(99,102,241,0.2)'
-                }}>
-
-                {/* 헤더 */}
-                <div style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid var(--border-glass)',
-                    background: 'rgba(13,25,48,0.9)',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                }}>
+                    borderRadius: 14,
+                    width: '100%',
+                    maxWidth: 640,
+                    overflow: 'hidden',
+                    border: '1px solid rgba(56,189,248,0.28)',
+                    boxShadow: '0 0 50px rgba(56,189,248,0.18)',
+                }}
+            >
+                <div
+                    style={{
+                        padding: '12px 16px',
+                        borderBottom: '1px solid var(--border-glass)',
+                        background: 'rgba(13,25,48,0.9)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                    }}
+                >
                     <div>
-                        <div style={{
-                            fontSize: 9, color: '#818cf8', fontWeight: 800,
-                            letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3
-                        }}>
-                            MFSR 포렌식 분석 — 생성형 AI 전면 배제
+                        <div
+                            style={{
+                                fontSize: 9,
+                                color: '#38bdf8',
+                                fontWeight: 800,
+                                letterSpacing: '0.12em',
+                                textTransform: 'uppercase',
+                                marginBottom: 3,
+                            }}
+                        >
+                            ITS Vehicle Analysis / YOLO Track
                         </div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>
                             {cctv.id} · {cctv.name}
                         </div>
                     </div>
-                    <button onClick={onClose} style={{
-                        background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#64748b', borderRadius: '50%', width: 28, height: 28,
-                        cursor: 'pointer', fontSize: 16, display: 'flex',
-                        alignItems: 'center', justifyContent: 'center'
-                    }}>✕</button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            background: 'rgba(255,255,255,0.07)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#64748b',
+                            borderRadius: '50%',
+                            width: 28,
+                            height: 28,
+                            cursor: 'pointer',
+                            fontSize: 16,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        ✕
+                    </button>
                 </div>
 
-                {/* 본문 */}
-                <div style={{ padding: '16px', maxHeight: '60vh', overflowY: 'auto' }}>
-
-                    {/* idle */}
-                    {phase === 'idle' && (
-                        <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                            <div style={{ fontSize: 42, marginBottom: 12 }}>⚗</div>
-                            <div style={{ fontSize: 14, color: '#e2e8f0', fontWeight: 700, marginBottom: 8 }}>
-                                5초 클립 MFSR 포렌식 분석
-                            </div>
-                            <div style={{ fontSize: 11, color: '#475569', marginBottom: 20, lineHeight: 1.7 }}>
-                                알고리즘 규칙 기반 분석만 수행합니다.<br />
-                                Laplacian 품질 필터링 → Optical-flow 감지 →<br />
-                                TSA RFC 3161 타임스탬프 → 해시 체인 결합
-                            </div>
-                            <div style={{
-                                marginBottom: 16, padding: '10px 14px',
-                                background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
-                                borderRadius: 8, fontSize: 11, color: '#818cf8', textAlign: 'left'
-                            }}>
-                                <div style={{ fontWeight: 700, marginBottom: 4 }}>분석 기반 MFSR 알고리즘</div>
-                                <div style={{ color: '#6366f1' }}>
-                                    • Laplacian 분산 기반 프레임 선별<br />
-                                    • Frame-diff 움직임 벡터 추출<br />
-                                    • Optical-flow 밀집 분석<br />
-                                    • SHA-256 해시 체인 + TSA 인증
-                                </div>
-                            </div>
-                            <button className="btn-forensic" onClick={start}
+                <div style={{ padding: 16, maxHeight: '72vh', overflowY: 'auto' }}>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                            gap: 8,
+                            marginBottom: 14,
+                        }}
+                    >
+                        {[
+                            { label: '현재 카메라', value: statusPill, color: isCurrentCameraSupported ? '#22c55e' : '#f59e0b' },
+                            {
+                                label: '추적 범위',
+                                value: routeFocusSummary
+                                    ? `${routeFocusSummary.scopeLabel} / ${trackScope.length}대`
+                                    : `${trackScope.length}대 ITS LIVE`,
+                                color: '#38bdf8',
+                            },
+                            {
+                                label: '백엔드',
+                                value: backendPill,
+                                color: !backendEnabled
+                                    ? '#ef4444'
+                                    : backendProvider === 'fallback'
+                                        ? '#f59e0b'
+                                        : '#22c55e',
+                            },
+                        ].map((item) => (
+                            <div
+                                key={item.label}
                                 style={{
-                                    width: '100%', padding: '11px',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-                                }}>
-                                ⚗ 포렌식 분석 시작
-                            </button>
+                                    background: 'rgba(255,255,255,0.03)',
+                                    border: '1px solid rgba(255,255,255,0.07)',
+                                    borderRadius: 8,
+                                    padding: '9px 10px',
+                                }}
+                            >
+                                <div style={{ fontSize: 9, color: '#475569', marginBottom: 4 }}>{item.label}</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: item.color }}>{item.value}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            padding: '10px 12px',
+                            background: 'rgba(56,189,248,0.08)',
+                            border: '1px solid rgba(56,189,248,0.2)',
+                            borderRadius: 8,
+                            fontSize: 11,
+                            color: '#bae6fd',
+                            lineHeight: 1.7,
+                        }}
+                    >
+                        ITS 실시간 카메라에서만 YOLO 차량 검출과 추적을 수행합니다.
+                        로컬 교통 CCTV는 지도 기준점용이므로 분석 대상에서 제외됩니다.
+                    </div>
+
+                    {backendEnabled && backendProvider === 'fallback' && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(245,158,11,0.08)',
+                                border: '1px solid rgba(245,158,11,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#fcd34d',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            현재는 외부 YOLO 서버 대신 내장 데모 fallback으로 운용 중입니다.
+                            결과는 UI 흐름 검증용이며 실전 포렌식 판정으로 간주하면 안 됩니다.
                         </div>
                     )}
 
-                    {/* analyzing */}
-                    {phase === 'analyzing' && (
-                        <div style={{ padding: '10px 0' }}>
+                    {routeFocusSummary && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(34,211,238,0.08)',
+                                border: '1px solid rgba(34,211,238,0.2)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#cffafe',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            현재 추적은 {routeFocusSummary.roadLabel} 기준으로 동작합니다.
+                            {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 최초 지점 이후 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
+                        </div>
+                    )}
+
+                    {routeContext && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(16,185,129,0.08)',
+                                border: '1px solid rgba(16,185,129,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#bbf7d0',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            노선 그룹 분석 세션이 활성화되었습니다.
+                            {` ${routeContext.roadLabel} / ${routeContext.scopeLabel} 기준으로`}
+                            {` 즉시 ${routeContext.immediateIds.length}대 → 단기 ${routeContext.shortIds.length}대 → 중기 ${routeContext.mediumIds.length}대 → 후속 ${routeContext.followupIds.length}대 순으로`}
+                            차량번호·색상·차종 단서를 더 강하게 적용합니다.
+                        </div>
+                    )}
+
+                    {routeContext && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(99,102,241,0.08)',
+                                border: '1px solid rgba(99,102,241,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#ddd6fe',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            이번 순차 분석은 현재 범위에서 상위 {bundleScope.length}대만 실행합니다.
+                            먼저 노선 그룹에서 차량번호·색상·차종 단서를 모으고, 그 결과를 같은 도로축 추적에 재사용합니다.
+                        </div>
+                    )}
+
+                    {!backendEnabled && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(239,68,68,0.08)',
+                                border: '1px solid rgba(239,68,68,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#fca5a5',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            {backendMessage || 'FORENSIC_API_URL 환경변수가 없어 차량 분석 서버를 호출할 수 없습니다.'}
+                        </div>
+                    )}
+
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1.3fr 1fr 1fr',
+                            gap: 8,
+                            marginBottom: 14,
+                        }}
+                    >
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontSize: 10, color: '#64748b' }}>차량번호</span>
+                            <input
+                                value={targetPlate}
+                                onChange={(event) => setTargetPlate(event.target.value)}
+                                placeholder="예: 12가3456 또는 일부 번호"
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 10px',
+                                    borderRadius: 6,
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    color: '#e2e8f0',
+                                    fontSize: 12,
+                                }}
+                            />
+                        </label>
+
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontSize: 10, color: '#64748b' }}>색상</span>
+                            <select
+                                value={targetColor}
+                                onChange={(event) => setTargetColor(event.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 10px',
+                                    borderRadius: 6,
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    color: '#e2e8f0',
+                                    fontSize: 12,
+                                }}
+                            >
+                                {VEHICLE_COLORS.map((option) => (
+                                    <option key={option} value={option} style={{ background: '#0f172a' }}>
+                                        {option}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontSize: 10, color: '#64748b' }}>차종</span>
+                            <select
+                                value={targetVehicleType}
+                                onChange={(event) => setTargetVehicleType(event.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 10px',
+                                    borderRadius: 6,
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    color: '#e2e8f0',
+                                    fontSize: 12,
+                                }}
+                            >
+                                {VEHICLE_TYPES.map((option) => (
+                                    <option key={option} value={option} style={{ background: '#0f172a' }}>
+                                        {option}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
+
+                    {(phase === 'analyzing' || phase === 'tracking') && (
+                        <div style={{ padding: '8px 0 14px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                                <div style={{
-                                    width: 20, height: 20, border: '2.5px solid #818cf8',
-                                    borderTopColor: 'transparent', borderRadius: '50%',
-                                    animation: 'spin 0.7s linear infinite'
-                                }} />
-                                <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600 }}>
-                                    {STEPS[stepIdx]?.label ?? '처리중…'}
+                                <div
+                                    style={{
+                                        width: 20,
+                                        height: 20,
+                                        border: '2.5px solid #38bdf8',
+                                        borderTopColor: 'transparent',
+                                        borderRadius: '50%',
+                                        animation: 'spin 0.7s linear infinite',
+                                    }}
+                                />
+                                <span style={{ fontSize: 12, color: '#38bdf8', fontWeight: 600 }}>
+                                    {(phase === 'analyzing' ? DETECTION_STEPS : TRACK_STEPS)[stepIdx]?.label ?? '처리 중…'}
                                 </span>
                             </div>
 
-                            {/* Progress */}
-                            <div style={{
-                                height: 6, background: 'rgba(255,255,255,0.06)',
-                                borderRadius: 3, overflow: 'hidden', marginBottom: 16
-                            }}>
-                                <div style={{
-                                    height: '100%', width: `${progress}%`,
-                                    background: 'linear-gradient(90deg, #6366f1, #818cf8)',
-                                    borderRadius: 3, transition: 'width 0.4s ease',
-                                    boxShadow: '0 0 8px rgba(99,102,241,0.6)'
-                                }} />
+                            <div
+                                style={{
+                                    height: 6,
+                                    background: 'rgba(255,255,255,0.06)',
+                                    borderRadius: 3,
+                                    overflow: 'hidden',
+                                    marginBottom: 16,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        height: '100%',
+                                        width: `${progress}%`,
+                                        background: 'linear-gradient(90deg, #0ea5e9, #38bdf8)',
+                                        borderRadius: 3,
+                                        transition: 'width 0.4s ease',
+                                        boxShadow: '0 0 8px rgba(56,189,248,0.6)',
+                                    }}
+                                />
                             </div>
 
-                            {STEPS.map((s, i) => (
-                                <div key={i} style={{
-                                    display: 'flex', alignItems: 'center',
-                                    gap: 8, marginBottom: 7, opacity: i <= stepIdx ? 1 : 0.3
-                                }}>
-                                    <span style={{ fontSize: 11, color: i < stepIdx ? '#22c55e' : i === stepIdx ? '#818cf8' : '#334155' }}>
-                                        {i < stepIdx ? '✓' : i === stepIdx ? '▶' : '○'}
+                            {(phase === 'analyzing' ? DETECTION_STEPS : TRACK_STEPS).map((step, index) => (
+                                <div
+                                    key={step.label}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        marginBottom: 7,
+                                        opacity: index <= stepIdx ? 1 : 0.3,
+                                    }}
+                                >
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            color: index < stepIdx ? '#22c55e' : index === stepIdx ? '#38bdf8' : '#334155',
+                                        }}
+                                    >
+                                        {index < stepIdx ? '✓' : index === stepIdx ? '▶' : '○'}
                                     </span>
-                                    <span style={{ fontSize: 11, color: i <= stepIdx ? '#94a3b8' : '#334155' }}>
-                                        {s.label}
+                                    <span style={{ fontSize: 11, color: index <= stepIdx ? '#94a3b8' : '#334155' }}>
+                                        {step.label}
                                     </span>
                                 </div>
                             ))}
                         </div>
                     )}
 
-                    {/* done */}
-                    {phase === 'done' && result && (
+                    {phase === 'analyzed' && analysisResult && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {/* Verdict */}
-                            <div style={{
-                                padding: '12px 14px',
-                                background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
-                                borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10
-                            }}>
-                                <span style={{ fontSize: 24 }}>✅</span>
+                            {analysisResult.tsa_status === 'local_fallback' && (
+                                <div
+                                    style={{
+                                        padding: '8px 12px',
+                                        background: 'rgba(245,158,11,0.08)',
+                                        border: '1px solid rgba(245,158,11,0.22)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        color: '#fcd34d',
+                                        lineHeight: 1.6,
+                                    }}
+                                >
+                                    이 분석 결과는 외부 YOLO 서버가 아니라 내장 데모 fallback에서 생성됐습니다.
+                                </div>
+                            )}
+                            <div
+                                style={{
+                                    padding: '12px 14px',
+                                    background: 'rgba(34,197,94,0.08)',
+                                    border: '1px solid rgba(34,197,94,0.3)',
+                                    borderRadius: 10,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                }}
+                            >
+                                <span style={{ fontSize: 24 }}>🚗</span>
                                 <div>
                                     <div style={{ fontSize: 12, fontWeight: 800, color: '#22c55e', marginBottom: 2 }}>
-                                        {result.verdict}
+                                        {analysisResult.verdict}
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#475569' }}>
-                                        신뢰도 {result.confidence.toFixed(1)}%
+                                    <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                                        신뢰도 {analysisResult.confidence.toFixed(1)}% · 검출 차량 {analysisResult.vehicle_count ?? 0}대
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Quality report */}
-                            <div style={{
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.07)', borderRadius: 9, padding: 12
-                            }}>
-                                <div style={{
-                                    fontSize: 10, color: '#818cf8', fontWeight: 800,
-                                    letterSpacing: '0.08em', marginBottom: 9
-                                }}>
-                                    📊 FRAME QUALITY REPORT
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
-                                    {[
-                                        { label: '입력 프레임', value: `${result.quality_report.total_input}장` },
-                                        { label: '채택 프레임', value: `${result.quality_report.passed}장`, color: '#22c55e' },
-                                        { label: '드롭 프레임', value: `${result.quality_report.dropped}장`, color: '#f59e0b' },
-                                        { label: 'Laplacian 임계값', value: result.quality_report.threshold.toFixed(1) },
-                                    ].map(item => (
-                                        <div key={item.label} style={{
-                                            background: 'rgba(255,255,255,0.03)',
-                                            borderRadius: 6, padding: '7px 9px'
-                                        }}>
-                                            <div style={{ fontSize: 9, color: '#475569', marginBottom: 2 }}>{item.label}</div>
-                                            <div style={{
-                                                fontSize: 14, fontWeight: 800,
-                                                color: item.color || 'white'
-                                            }}>{item.value}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Hash chain */}
-                            <div style={{
-                                background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.07)', borderRadius: 9, padding: 12
-                            }}>
-                                <div style={{
-                                    fontSize: 10, color: '#818cf8', fontWeight: 800,
-                                    letterSpacing: '0.08em', marginBottom: 9
-                                }}>
-                                    🔗 HASH CHAIN INTEGRITY
-                                </div>
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                                    gap: 8,
+                                }}
+                            >
                                 {[
-                                    { label: 'INPUT HASH', value: result.input_hash, color: '#60a5fa' },
-                                    { label: 'RESULT HASH', value: result.result_hash, color: '#22c55e' },
-                                    { label: 'CHAIN HASH', value: result.chain_hash, color: '#818cf8' },
-                                ].map(h => (
-                                    <div key={h.label} style={{ marginBottom: 7 }}>
-                                        <div style={{ fontSize: 9, color: '#475569', marginBottom: 2 }}>{h.label}</div>
-                                        <div style={{
-                                            fontSize: 9, color: h.color, fontFamily: 'monospace',
-                                            background: 'rgba(0,0,0,0.3)', padding: '4px 7px', borderRadius: 4,
-                                            wordBreak: 'break-all', lineHeight: 1.5,
-                                            border: `1px solid ${h.color}22`
-                                        }}>
-                                            {h.value}
+                                    { label: '입력 프레임', value: `${analysisResult.quality_report.total_input}장` },
+                                    { label: '채택 프레임', value: `${analysisResult.quality_report.passed}장` },
+                                    { label: '번호판 후보', value: analysisResult.plate_candidates?.join(', ') || '없음' },
+                                    { label: '이벤트', value: analysisResult.events_detected.join(', ') },
+                                ].map((row) => (
+                                    <div
+                                        key={row.label}
+                                        style={{
+                                            background: 'rgba(255,255,255,0.03)',
+                                            border: '1px solid rgba(255,255,255,0.07)',
+                                            borderRadius: 8,
+                                            padding: '9px 10px',
+                                        }}
+                                    >
+                                        <div style={{ fontSize: 9, color: '#475569', marginBottom: 3 }}>{row.label}</div>
+                                        <div style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 700, lineHeight: 1.5 }}>
+                                            {row.value}
                                         </div>
                                     </div>
                                 ))}
                             </div>
 
-                            {/* TSA */}
-                            <div style={{
-                                padding: '9px 12px',
-                                background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)',
-                                borderRadius: 8, fontSize: 11, color: '#818cf8'
-                            }}>
-                                🕐 TSA RFC 3161 &nbsp;
-                                <span style={{ color: '#22c55e', fontWeight: 700 }}>✓ 공인 타임스탬프 검증됨</span>
-                                <br />
-                                <span style={{ fontSize: 9, color: '#475569' }}>
-                                    생성형 AI 사용: <span style={{ color: '#22c55e' }}>아니오 ✓</span>
-                                    &nbsp;·&nbsp; 알고리즘: {result.algorithm.split('/')[0].trim()}
-                                </span>
+                            <div
+                                style={{
+                                    padding: '9px 12px',
+                                    background: 'rgba(99,102,241,0.07)',
+                                    border: '1px solid rgba(99,102,241,0.2)',
+                                    borderRadius: 8,
+                                    fontSize: 11,
+                                    color: '#c4b5fd',
+                                }}
+                            >
+                                해시 체인: {analysisResult.chain_hash}
                             </div>
                         </div>
                     )}
 
-                    {/* error */}
+                    {phase === 'analyzed' && bundleAnalysisSummary && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div
+                                style={{
+                                    padding: '12px 14px',
+                                    background: 'rgba(14,165,233,0.08)',
+                                    border: '1px solid rgba(14,165,233,0.22)',
+                                    borderRadius: 10,
+                                }}
+                            >
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8', marginBottom: 4 }}>
+                                    노선 그룹 순차 분석 완료
+                                </div>
+                                <div style={{ fontSize: 11, color: '#e2e8f0', lineHeight: 1.6 }}>
+                                    {bundleAnalysisSummary.scopeLabel} 기준 상위 {bundleAnalysisSummary.processed}대를 순차 분석했습니다.
+                                    {bundleAnalysisSummary.suggestedPlate ? ` 번호판 후보 ${bundleAnalysisSummary.suggestedPlate}` : ''}
+                                    {bundleAnalysisSummary.suggestedColor ? ` · 색상 ${bundleAnalysisSummary.suggestedColor}` : ''}
+                                    {bundleAnalysisSummary.suggestedVehicleType ? ` · 차종 ${bundleAnalysisSummary.suggestedVehicleType}` : ''}
+                                </div>
+                            </div>
+
+                            {bundleAnalysisSummary.hits.map((hit) => (
+                                <div
+                                    key={`${hit.cctv_id}-${hit.time_window_label || 'na'}`}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.03)',
+                                        border: '1px solid rgba(255,255,255,0.07)',
+                                        borderRadius: 8,
+                                        padding: '10px 12px',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                                        <div>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
+                                                {hit.cctv_name}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                {hit.region}
+                                                {hit.time_window_label ? ` · ${hit.time_window_label}` : ''}
+                                                {hit.expected_eta_minutes !== undefined ? ` · ETA ${hit.expected_eta_minutes}분` : ''}
+                                                {hit.is_route_focus ? ' · 집중군' : ''}
+                                            </div>
+                                        </div>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 12, fontWeight: 800, color: '#22c55e' }}>
+                                                {hit.confidence.toFixed(1)}%
+                                            </div>
+                                            <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                검출 {hit.vehicle_count}대
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
+                                        번호판 후보 {hit.plate_candidates.length > 0 ? hit.plate_candidates.join(', ') : (hit.target_plate || '없음')}
+                                        {' · '}
+                                        색상 {hit.target_color || '미상'}
+                                        {' · '}
+                                        차종 {hit.target_vehicle_type || '미상'}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {phase === 'tracked' && trackingResult && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {backendProvider === 'fallback' && (
+                                <div
+                                    style={{
+                                        padding: '8px 12px',
+                                        background: 'rgba(245,158,11,0.08)',
+                                        border: '1px solid rgba(245,158,11,0.22)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        color: '#fcd34d',
+                                        lineHeight: 1.6,
+                                    }}
+                                >
+                                    이 추적 결과는 내장 데모 fallback 기준입니다. 실제 포렌식 판정 전에는 외부 분석 서버 복구가 필요합니다.
+                                </div>
+                            )}
+                            <div
+                                style={{
+                                    padding: '12px 14px',
+                                    background: 'rgba(56,189,248,0.08)',
+                                    border: '1px solid rgba(56,189,248,0.22)',
+                                    borderRadius: 10,
+                                }}
+                            >
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8', marginBottom: 4 }}>
+                                    추적 결과
+                                </div>
+                                <div style={{ fontSize: 11, color: '#e2e8f0', lineHeight: 1.6 }}>
+                                    {trackingResult.message}
+                                </div>
+                                <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                                    추적 ID {trackingResult.tracking_id} · 검색 카메라 {trackingResult.searched_cameras}대
+                                </div>
+                            </div>
+
+                            {trackingResult.hits.length === 0 ? (
+                                <div
+                                    style={{
+                                        padding: '12px 14px',
+                                        background: 'rgba(255,255,255,0.03)',
+                                        border: '1px solid rgba(255,255,255,0.07)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        color: '#94a3b8',
+                                    }}
+                                >
+                                    현재 조건과 일치하는 차량 이동 후보가 없습니다.
+                                </div>
+                            ) : (
+                                trackingResult.hits.map((hit) => (
+                                    <div
+                                        key={hit.id}
+                                        style={{
+                                            background: 'rgba(255,255,255,0.03)',
+                                            border: '1px solid rgba(255,255,255,0.07)',
+                                            borderRadius: 8,
+                                            padding: '10px 12px',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
+                                                    {hit.cctv_name}
+                                                </div>
+                                                <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                    {hit.region} · {hit.address || '주소 미상'}
+                                                </div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8' }}>
+                                                    {hit.confidence.toFixed(1)}%
+                                                </div>
+                                                <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                    {new Date(hit.timestamp).toLocaleString('ko-KR')}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
+                                            차량번호 {hit.plate || effectiveTargetPlate || '미상'} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
+                                        </div>
+                                        {(hit.time_window_label || hit.travel_assessment_label || hit.expected_eta_minutes !== undefined) && (
+                                            <div
+                                                style={{
+                                                    marginTop: 7,
+                                                    fontSize: 10,
+                                                    color: '#94a3b8',
+                                                    lineHeight: 1.6,
+                                                }}
+                                            >
+                                                예상 구간 {hit.time_window_label || '미상'}
+                                                {hit.expected_eta_minutes !== undefined ? ` · ETA ${hit.expected_eta_minutes}분` : ''}
+                                                {hit.travel_assessment_label ? ` · ${hit.travel_assessment_label}` : ''}
+                                            </div>
+                                        )}
+                                        {onLocate && hit.cctv_id && (
+                                            <button
+                                                onClick={() => onLocate(hit.cctv_id)}
+                                                style={{
+                                                    marginTop: 8,
+                                                    padding: '6px 10px',
+                                                    borderRadius: 6,
+                                                    border: '1px solid rgba(56,189,248,0.25)',
+                                                    background: 'rgba(56,189,248,0.08)',
+                                                    color: '#38bdf8',
+                                                    fontSize: 11,
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                지도에서 위치 확인
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+
                     {phase === 'error' && (
-                        <div style={{ textAlign: 'center', padding: '24px', color: '#ef4444' }}>
+                        <div
+                            style={{
+                                textAlign: 'center',
+                                padding: '24px',
+                                color: '#ef4444',
+                                background: 'rgba(127,29,29,0.16)',
+                                border: '1px solid rgba(239,68,68,0.18)',
+                                borderRadius: 10,
+                            }}
+                        >
                             <div style={{ fontSize: 36, marginBottom: 10 }}>⚠</div>
-                            <div style={{ fontSize: 13, fontWeight: 700 }}>분석 중 오류 발생</div>
-                            <div style={{ fontSize: 11, color: '#475569', marginTop: 6 }}>
-                                스트림 연결 또는 분석 서버를 확인하세요.
+                            <div style={{ fontSize: 13, fontWeight: 700 }}>차량 분석 단계 오류</div>
+                            <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 6, lineHeight: 1.7 }}>
+                                {errorMessage || '스트림 연결 또는 차량 분석 서버를 확인하세요.'}
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* 하단 */}
-                <div style={{
-                    padding: '11px 16px',
-                    borderTop: '1px solid var(--border-glass)',
-                    display: 'flex', justifyContent: 'flex-end', gap: 8
-                }}>
-                    {phase === 'done' && (
+                <div
+                    style={{
+                        padding: '11px 16px',
+                        borderTop: '1px solid var(--border-glass)',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                    }}
+                >
+                    {phase !== 'analyzing' && phase !== 'tracking' && (
+                        <button className="btn-neon" onClick={resetWorkflow}>
+                            초기화
+                        </button>
+                    )}
+
+                    {(phase === 'idle' || phase === 'error') && (
                         <>
-                            <button className="btn-neon" onClick={reset}>다시 분석</button>
-                            <button className="btn-forensic"
-                                onClick={() => {
-                                    if (!result) return;
-                                    const blob = new Blob([JSON.stringify(result, null, 2)],
-                                        { type: 'application/json' });
-                                    const a = document.createElement('a');
-                                    a.href = URL.createObjectURL(blob);
-                                    a.download = `forensic_${result.job_id.slice(0, 8)}.json`;
-                                    a.click();
-                                }}>
-                                ↓ 증거 자료 저장 (해시 암호화)
+                            <button className="btn-neon" onClick={startAnalysis}>
+                                단일 CCTV 분석
+                            </button>
+                            {routeContext && (
+                                <button className="btn-forensic" onClick={startBundleAnalysis}>
+                                    노선 그룹 순차 분석
+                                </button>
+                            )}
+                        </>
+                    )}
+
+                    {phase === 'analyzed' && (analysisResult || bundleAnalysisSummary) && (
+                        <>
+                            {analysisResult && (
+                                <button
+                                    className="btn-neon"
+                                    onClick={() => exportEvidence(analysisResult, `vehicle_analysis_${analysisResult.job_id.slice(0, 8)}.json`)}
+                                >
+                                    분석 결과 저장
+                                </button>
+                            )}
+                            {bundleAnalysisSummary && (
+                                <button
+                                    className="btn-neon"
+                                    onClick={() => exportEvidence(bundleAnalysisSummary, `route_bundle_analysis_${cctv.id.slice(0, 8)}.json`)}
+                                >
+                                    노선 분석 저장
+                                </button>
+                            )}
+                            <button className="btn-forensic" onClick={startTracking}>
+                                ITS 차량 추적 시작
                             </button>
                         </>
                     )}
-                    <button onClick={onClose} style={{
-                        padding: '7px 16px', borderRadius: 6,
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        background: 'rgba(255,255,255,0.04)', color: '#64748b',
-                        fontSize: 11, cursor: 'pointer', fontWeight: 700
-                    }}>
+
+                    {phase === 'tracked' && trackingResult && (
+                        <button
+                            className="btn-forensic"
+                            onClick={() => exportEvidence({
+                                analysis: analysisResult,
+                                tracking: trackingResult,
+                            }, `vehicle_tracking_${trackingResult.tracking_id.slice(0, 8)}.json`)}
+                        >
+                            추적 결과 저장
+                        </button>
+                    )}
+
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '7px 16px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            background: 'rgba(255,255,255,0.04)',
+                            color: '#64748b',
+                            fontSize: 11,
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                        }}
+                    >
                         닫기
                     </button>
                 </div>

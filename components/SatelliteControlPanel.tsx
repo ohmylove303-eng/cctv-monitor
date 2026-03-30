@@ -1,35 +1,50 @@
 'use client';
 
-export type SatelliteMode = 'off' | 'gk2a' | 'sentinel' | 'planet';
+export type SatelliteMode = 'off' | 'sentinel' | 'planet';
 
 interface Props {
     mode: SatelliteMode;
     onModeChange: (m: SatelliteMode) => void;
+    availableModes?: SatelliteMode[];
     opacity: number;
     onOpacityChange: (v: number) => void;
     sentinelDate: string;
     onSentinelDateChange: (d: string) => void;
     lastUpdated: string | null;
     isLoading: boolean;
+    errorMessage: string | null;
 }
 
 const MODES: { key: SatelliteMode; label: string }[] = [
     { key: 'off', label: 'OFF' },
-    { key: 'gk2a', label: 'GK2A' },
     { key: 'sentinel', label: 'S2' },
-    { key: 'planet', label: 'Planet' },
+    { key: 'planet', label: 'SKY' },
 ];
+
+const MODE_TITLES: Record<Exclude<SatelliteMode, 'off'>, string> = {
+    sentinel: 'Sentinel-2',
+    planet: 'Planet SkySat',
+};
+
+function formatLastUpdated(value: string | null) {
+    if (!value) return '대기중';
+    return value.includes('T') ? value.replace('T', ' ').slice(0, 16) : value;
+}
 
 export default function SatelliteControlPanel({
     mode,
     onModeChange,
+    availableModes = ['off', 'sentinel'],
     opacity,
     onOpacityChange,
     sentinelDate,
     onSentinelDateChange,
     lastUpdated,
     isLoading,
+    errorMessage,
 }: Props) {
+    const activeTitle = mode === 'off' ? 'Satellite' : MODE_TITLES[mode];
+
     return (
         <div
             className="w-64 rounded-lg p-3 text-xs"
@@ -58,12 +73,12 @@ export default function SatelliteControlPanel({
                     gap: 5,
                 }}
             >
-                🛰 위성 영상
+                🛰 {activeTitle}
             </div>
 
             {/* 모드 버튼 */}
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                {MODES.map(({ key, label }) => (
+                {MODES.filter(({ key }) => availableModes.includes(key)).map(({ key, label }) => (
                     <button
                         key={key}
                         onClick={() => onModeChange(key)}
@@ -134,8 +149,8 @@ export default function SatelliteControlPanel({
                 </div>
             )}
 
-            {/* Sentinel 날짜 선택 (mode=sentinel일 때만) */}
-            {mode === 'sentinel' && (
+            {/* 날짜 선택 */}
+            {mode !== 'off' && (
                 <div style={{ marginBottom: 8 }}>
                     <div
                         style={{
@@ -146,7 +161,7 @@ export default function SatelliteControlPanel({
                             marginBottom: 4,
                         }}
                     >
-                        날짜 (Sentinel-2)
+                        날짜 ({activeTitle})
                     </div>
                     <input
                         type="date"
@@ -166,8 +181,8 @@ export default function SatelliteControlPanel({
                 </div>
             )}
 
-            {/* GK2A 갱신 시각 표시 */}
-            {mode === 'gk2a' && (
+            {/* 갱신 정보 */}
+            {mode !== 'off' && (
                 <div
                     style={{
                         display: 'flex',
@@ -177,9 +192,9 @@ export default function SatelliteControlPanel({
                         color: '#475569',
                     }}
                 >
-                    <span>갱신:</span>
+                    <span>기준:</span>
                     <span style={{ color: lastUpdated ? '#22c55e' : '#334155' }}>
-                        {lastUpdated ?? '대기중'}
+                        {formatLastUpdated(lastUpdated)}
                     </span>
                     {isLoading && (
                         <span
@@ -196,16 +211,34 @@ export default function SatelliteControlPanel({
                 </div>
             )}
 
-            {/* API 키 없을 때 안내 (mode !== off, opacity 슬라이더 아래) */}
-            {mode === 'planet' && (
-                <div style={{ fontSize: 9, color: '#334155', marginTop: 4 }}>
-                    * PLANET_API_KEY 필요
+            {mode === 'sentinel' && (
+                <div
+                    style={{
+                        marginTop: 6,
+                        fontSize: 9,
+                        color: '#64748b',
+                        lineHeight: 1.4,
+                    }}
+                >
+                    줌 14 이상에서는 베이스맵 선명도 우선으로 Sentinel이 자동 숨김됩니다.
                 </div>
             )}
 
-            {mode === 'gk2a' && (
-                <div style={{ fontSize: 9, color: '#334155', marginTop: 4 }}>
-                    * KMA_API_KEY 필요 · 2분 자동 갱신
+            {mode !== 'off' && errorMessage && (
+                <div
+                    style={{
+                        marginTop: 8,
+                        padding: '8px 9px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(248,113,113,0.28)',
+                        background: 'rgba(127,29,29,0.18)',
+                        color: '#fecaca',
+                        fontSize: 9,
+                        lineHeight: 1.5,
+                    }}
+                >
+                    {activeTitle} 상태 이상
+                    <div style={{ color: '#fca5a5', marginTop: 3 }}>{errorMessage}</div>
                 </div>
             )}
         </div>

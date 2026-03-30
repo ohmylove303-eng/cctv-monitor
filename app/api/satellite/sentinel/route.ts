@@ -1,41 +1,78 @@
-export const dynamic = "force-dynamic";
-
 import { NextResponse } from 'next/server';
+import {
+    buildSentinelImageCoordinates,
+    getSentinelConfig,
+    resolveSentinelDate,
+    resolveSentinelBBox,
+    resolveSentinelOutputSize,
+} from '@/lib/sentinel';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-    const instanceId = process.env.SENTINEL_INSTANCE_ID;
+    const requestUrl = new URL(request.url);
+    const { searchParams } = requestUrl;
+    const date = resolveSentinelDate(searchParams.get('date'));
+    const bbox = resolveSentinelBBox(searchParams.get('bbox'));
+    const { width, height } = resolveSentinelOutputSize(searchParams.get('width'), searchParams.get('height'));
+    const { clientId, clientSecret, instanceId, layer } = getSentinelConfig();
 
-    if (!instanceId) {
-        return NextResponse.json({
-            tileUrl: null,
-            layer: 'TRUE-COLOR',
-            date: new Date().toISOString().split('T')[0],
-            fallback: true,
-            message: 'SENTINEL_INSTANCE_ID not set',
+    if (clientId && clientSecret) {
+        const imageQuery = new URLSearchParams({
+            date,
+            bbox: bbox.join(','),
+            width: String(width),
+            height: String(height),
         });
+
+        return NextResponse.json(
+            {
+                mode: 'image',
+                imageUrl: `/api/satellite/sentinel/image?${imageQuery.toString()}`,
+                coordinates: buildSentinelImageCoordinates(bbox),
+                date,
+                width,
+                height,
+                fallback: false,
+            },
+            {
+                headers: { 'Cache-Control': 'no-store' },
+            }
+        );
     }
 
-    const { searchParams } = new URL(request.url);
-    const date = searchParams.get('date') ?? new Date().toISOString().split('T')[0];
+    if (instanceId) {
+        const tileUrl =
+            `https://services.sentinel-hub.com/ogc/wms/${instanceId}` +
+            `?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0` +
+            `&LAYERS=${encodeURIComponent(layer)}` +
+            `&CRS=EPSG:3857&WIDTH=512&HEIGHT=512&FORMAT=image/png` +
+            `&TIME=${date}` +
+            `&BBOX={bbox-epsg-3857}`;
 
-    // Sentinel Hub WMS URL 구성 (MapLibre raster source 호환)
-    // WMTS는 MapLibre에서 직접 쓰기 어려우므로 WMS bbox 방식 사용
-    const tileUrl =
-        `https://services.sentinel-hub.com/ogc/wms/${instanceId}` +
-        `?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0` +
-        `&LAYERS=TRUE-COLOR&CRS=EPSG:3857` +
-        `&WIDTH=256&HEIGHT=256&FORMAT=image/png` +
-        `&TIME=${date}` +
-        `&BBOX={bbox-epsg-3857}`;
+        return NextResponse.json(
+            {
+                mode: 'tile',
+                tileUrl,
+                layer,
+                date,
+                fallback: false,
+            },
+            {
+                headers: { 'Cache-Control': 'no-store' },
+            }
+        );
+    }
 
     return NextResponse.json(
         {
-            tileUrl,
-            layer: 'TRUE-COLOR',
+            mode: 'fallback',
+            imageUrl: null,
+            tileUrl: null,
+            layer,
             date,
-            instanceId, // 프론트에서 직접 URL 구성 시 사용
+            fallback: true,
+            message: 'Sentinel credentials are not set',
         },
         {
             headers: { 'Cache-Control': 'no-store' },

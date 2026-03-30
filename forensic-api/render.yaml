@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: its-forensic-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./forensic-api/Dockerfile
+    dockerContext: ./forensic-api
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: FORENSIC_DEMO_MODE
+        value: "true"
+      - key: YOLO_MODEL_PATH
+        value: "yolov8n.pt"
+      - key: YOLO_CONFIDENCE
+        value: "0.25"
+      - key: ANALYZE_FRAME_LIMIT
+        value: "18"
+      - key: TRACK_CAMERA_LIMIT
+        value: "24"
+      - key: TRACK_HIT_LIMIT
+        value: "12"

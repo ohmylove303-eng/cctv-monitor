@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { CctvItem, CctvType } from '@/types/cctv';
 import ForensicModal from './ForensicModal';
 import LivePlayer from './LivePlayer';
+import { toMilitaryGrid } from '@/lib/military-grid';
 
 const TYPE_CFG: Record<CctvType, { label: string; color: string; icon: string }> = {
   crime: { label: '방범 CCTV', color: '#60a5fa', icon: '📷' },
@@ -14,6 +15,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const REGION_COLOR: Record<string, string> = {
   '김포': '#10b981', '인천': '#06b6d4',
+  '서울': '#8b5cf6',
 };
 
 interface Props { cctv: CctvItem; onClose: () => void; }
@@ -24,6 +26,7 @@ export default function CctvModal({ cctv, onClose }: Props) {
   const [streamLoading, setStreamLoading] = useState(false);
   const [streamError, setStreamError] = useState(false);
   const cfg = TYPE_CFG[cctv.type];
+  const militaryGrid = toMilitaryGrid(cctv.lat, cctv.lng);
 
   // ─── gimpo.cctvstream.net URL → /api/hls-proxy 변환 ─────────────────────
   function toProxiedUrl(url: string): string | null {
@@ -203,7 +206,17 @@ export default function CctvModal({ cctv, onClose }: Props) {
             }}>
               <div style={{ fontSize: 9, color: '#475569', marginBottom: 3 }}>설치위치</div>
               <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>{cctv.address}</div>
-              <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{
+                fontSize: 11,
+                color: '#e2e8f0',
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                marginBottom: 6,
+                letterSpacing: '0.02em'
+              }}>
+                MGRS {militaryGrid ?? '변환 불가'}
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>
                   LAT {cctv.lat.toFixed(6)}
                 </span>
@@ -218,7 +231,7 @@ export default function CctvModal({ cctv, onClose }: Props) {
                 width: '100%', padding: '9px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7
               }}>
-              ⚗ 포렌식 분석 (MFSR) — 생성형 AI 전면 배제
+              🚗 ITS 차량 분석 / 포렌식 추적
             </button>
             <button onClick={onClose} style={{
               width: '100%', marginTop: 7, padding: '8px',
