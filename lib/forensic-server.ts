@@ -9,7 +9,8 @@ const FORENSIC_API_BASE =
     process.env.FORENSIC_API_URL?.trim()
     || process.env.NEXT_PUBLIC_FORENSIC_API?.trim()
     || '';
-const PROBE_TIMEOUT_MS = 8000;
+const PROBE_TIMEOUT_MS = 15000;
+const ANALYZE_PROXY_TIMEOUT_MS = 90000;
 
 function buildHeaders(initHeaders?: HeadersInit) {
     const headers = new Headers(initHeaders);
@@ -168,7 +169,7 @@ export async function proxyForensic(path: string, init?: RequestInit) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45_000);
+    const timeout = setTimeout(() => controller.abort(), ANALYZE_PROXY_TIMEOUT_MS);
 
     try {
         const upstream = await fetch(`${FORENSIC_API_BASE}${path}`, {
