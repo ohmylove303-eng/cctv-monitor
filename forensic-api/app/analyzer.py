@@ -146,6 +146,58 @@ def extract_plate_candidates(texts: list[str]) -> list[str]:
     return found[:5]
 
 
+def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None) -> str:
+    if settings.forensic_demo_mode:
+        return "demo-yolo-vehicle-detect / target-hint / mfsr-chain"
+
+    if ocr_status == "ocr_active":
+        return f"ultralytics-yolo / frame-sampling / {ocr_engine or 'ocr'}-hook"
+
+    requested_engine = settings.ocr_engine.strip().lower()
+    if requested_engine not in {"", "disabled", "none", "off"}:
+        return f"ultralytics-yolo / frame-sampling / {requested_engine}-unavailable"
+
+    return "ultralytics-yolo / frame-sampling / no-live-ocr"
+
+
+def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
+    variants: list[Any] = [frame]
+
+    try:
+        import cv2
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        variants.append(gray)
+
+        enlarged = cv2.resize(gray, None, fx=1.6, fy=1.6, interpolation=cv2.INTER_CUBIC)
+        variants.append(enlarged)
+
+        _, binary = cv2.threshold(enlarged, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.append(binary)
+    except Exception:
+        pass
+
+    texts: list[str] = []
+
+    for variant in variants:
+        try:
+            entries = reader.readtext(variant, detail=1, paragraph=False)
+        except Exception:
+            continue
+
+        for entry in entries:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+
+            text = str(entry[1]).strip()
+            confidence = float(entry[2]) if len(entry) > 2 and isinstance(entry[2], (int, float)) else 0.0
+
+            if text and confidence >= 0.15:
+                texts.append(text)
+
+    return texts
+
+
 def run_plate_ocr(
     frames: list[np.ndarray],
     request: AnalyzeRequest,
@@ -169,13 +221,7 @@ def run_plate_ocr(
 
     ocr_texts: list[str] = []
     for frame in frames[: settings.ocr_frame_limit]:
-        try:
-            lines = reader.readtext(frame, detail=0, paragraph=False)
-        except Exception:
-            continue
-        for line in lines:
-            if isinstance(line, str):
-                ocr_texts.append(line)
+        ocr_texts.extend(collect_easyocr_texts(reader, frame))
 
     candidates = extract_plate_candidates(ocr_texts)
     return candidates, "ocr_active", "easyocr"
@@ -206,7 +252,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             job_id=f"analysis-{uuid4().hex[:12]}",
             cctv_id=request.cctv_id,
             timestamp=timestamp,
-            algorithm="demo-yolo-vehicle-detect / target-hint / mfsr-chain",
+            algorithm=build_algorithm_label(settings, "target_hint_only", None),
             input_hash=input_hash,
             result_hash=result_hash,
             chain_hash=chain_hash,
@@ -250,7 +296,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         job_id=f"analysis-{uuid4().hex[:12]}",
         cctv_id=request.cctv_id,
         timestamp=timestamp,
-        algorithm="ultralytics-yolo / frame-sampling / no-live-ocr",
+        algorithm=build_algorithm_label(settings, ocr_status, ocr_engine),
         input_hash=input_hash,
         result_hash=result_hash,
         chain_hash=chain_hash,
