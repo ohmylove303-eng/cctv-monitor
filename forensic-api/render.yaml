@@ -16,6 +16,12 @@ services:
         value: "yolov8n.pt"
       - key: YOLO_CONFIDENCE
         value: "0.25"
+      - key: OCR_ENGINE
+        value: "disabled"
+      - key: OCR_LANG_LIST
+        value: "ko,en"
+      - key: OCR_FRAME_LIMIT
+        value: "4"
       - key: ANALYZE_FRAME_LIMIT
         value: "18"
       - key: TRACK_CAMERA_LIMIT

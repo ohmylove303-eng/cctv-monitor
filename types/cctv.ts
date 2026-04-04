@@ -119,6 +119,7 @@ export interface ForensicTrackingHit {
     timestamp: string;
     confidence: number;
     plate?: string;
+    plate_candidates?: string[];
     color?: string;
     vehicle_type?: string;
     expected_eta_minutes?: number;

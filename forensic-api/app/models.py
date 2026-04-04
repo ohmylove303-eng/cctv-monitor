@@ -71,6 +71,7 @@ class TrackHit(BaseModel):
     timestamp: datetime
     confidence: float
     plate: str | None = None
+    plate_candidates: list[str] = Field(default_factory=list)
     color: str | None = None
     vehicle_type: str | None = None
 

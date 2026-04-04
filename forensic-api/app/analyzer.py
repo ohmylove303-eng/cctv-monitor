@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import re
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -14,6 +15,10 @@ from .settings import Settings, get_settings
 
 KST = timezone(timedelta(hours=9))
 VEHICLE_CLASS_IDS = {2: "sedan", 3: "motorcycle", 5: "bus", 7: "truck"}
+PLATE_REGEXES = [
+    re.compile(r"\d{2,3}[가-힣]\d{4}"),
+    re.compile(r"[가-힣]{1,2}\d{2,3}[가-힣]\d{4}"),
+]
 
 
 def sha256_text(value: str) -> str:
@@ -45,6 +50,31 @@ def get_yolo_model() -> Any | None:
 
     try:
         return YOLO(settings.yolo_model_path)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=1)
+def get_easyocr_reader() -> Any | None:
+    settings = get_settings()
+    if settings.forensic_demo_mode:
+        return None
+
+    if settings.ocr_engine.strip().lower() != "easyocr":
+        return None
+
+    try:
+        import easyocr
+    except Exception:
+        return None
+
+    try:
+        languages = [
+            token.strip()
+            for token in settings.ocr_lang_list.split(",")
+            if token.strip()
+        ] or ["ko", "en"]
+        return easyocr.Reader(languages, gpu=False, verbose=False)
     except Exception:
         return None
 
@@ -95,6 +125,27 @@ def run_yolo_vehicle_count(frames: list[np.ndarray], settings: Settings) -> tupl
     return detections, labels
 
 
+def normalize_ocr_text(text: str) -> str:
+    return re.sub(r"[\s\-_:./]", "", text.strip())
+
+
+def extract_plate_candidates(texts: list[str]) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+
+    for text in texts:
+        normalized = normalize_ocr_text(text)
+        if not normalized:
+            continue
+        for pattern in PLATE_REGEXES:
+            for match in pattern.findall(normalized):
+                if match not in seen:
+                    seen.add(match)
+                    found.append(match)
+
+    return found[:5]
+
+
 def run_plate_ocr(
     frames: list[np.ndarray],
     request: AnalyzeRequest,
@@ -105,10 +156,29 @@ def run_plate_ocr(
     if settings.forensic_demo_mode:
         return [], "target_hint_only", None
 
-    if settings.ocr_engine.strip().lower() in {"", "disabled", "none", "off"}:
+    engine = settings.ocr_engine.strip().lower()
+    if engine in {"", "disabled", "none", "off"}:
         return [], "not_available", None
 
-    return [], "not_available", settings.ocr_engine
+    if engine != "easyocr":
+        return [], "not_available", settings.ocr_engine
+
+    reader = get_easyocr_reader()
+    if reader is None:
+        return [], "not_available", settings.ocr_engine
+
+    ocr_texts: list[str] = []
+    for frame in frames[: settings.ocr_frame_limit]:
+        try:
+            lines = reader.readtext(frame, detail=0, paragraph=False)
+        except Exception:
+            continue
+        for line in lines:
+            if isinstance(line, str):
+                ocr_texts.append(line)
+
+    candidates = extract_plate_candidates(ocr_texts)
+    return candidates, "ocr_active", "easyocr"
 
 
 def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
@@ -230,6 +300,7 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
                 timestamp=base_time + timedelta(minutes=index * 2),
                 confidence=round(rng.uniform(74.0, 96.0), 1),
                 plate=request.plate,
+                plate_candidates=[],
                 color=request.color,
                 vehicle_type=request.vehicle_type,
             )
@@ -273,7 +344,8 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
                 address=camera.address,
                 timestamp=analysis.timestamp,
                 confidence=analysis.confidence,
-                plate=request.plate,
+                plate=analysis.plate_candidates[0] if analysis.plate_candidates else request.plate,
+                plate_candidates=analysis.plate_candidates,
                 color=request.color,
                 vehicle_type=request.vehicle_type or analysis.target_vehicle_type,
             )

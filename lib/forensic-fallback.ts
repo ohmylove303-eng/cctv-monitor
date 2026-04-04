@@ -147,6 +147,7 @@ export function createFallbackTrackResponse(payload: TrackRequestPayload) {
             timestamp: new Date(baseTime + index * 2 * 60_000).toISOString(),
             confidence: Number((74 + hashInt(seed, 21, 10 + index) + hashInt(seed, 10, 40 + index) / 10).toFixed(1)),
             plate: payload.plate || null,
+            plate_candidates: [],
             color: payload.color || null,
             vehicle_type: payload.vehicle_type || null,
             expected_eta_minutes: camera.expectedEtaMinutes ?? null,

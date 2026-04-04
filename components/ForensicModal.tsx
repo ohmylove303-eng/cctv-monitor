@@ -219,6 +219,7 @@ function normalizeTrackingResult(
             timestamp: String(hit.timestamp ?? hit.detected_at ?? new Date().toISOString()),
             confidence: Number(hit.confidence ?? hit.score ?? 0),
             plate: typeof hit.plate === 'string' ? hit.plate : undefined,
+            plate_candidates: Array.isArray(hit.plate_candidates) ? hit.plate_candidates.map(String) : [],
             color: typeof hit.color === 'string' ? hit.color : undefined,
             vehicle_type: typeof hit.vehicle_type === 'string'
                 ? hit.vehicle_type
@@ -1161,7 +1162,9 @@ export default function ForensicModal({
                                             </div>
                                         </div>
                                         <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
-                                            차량번호 {hit.plate || effectiveTargetPlate || '미상'} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
+                                            차량번호 단서 {hit.plate_candidates && hit.plate_candidates.length > 0
+                                                ? hit.plate_candidates.join(', ')
+                                                : (hit.plate || effectiveTargetPlate || '미상')} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
                                         </div>
                                         {(hit.time_window_label || hit.travel_assessment_label || hit.expected_eta_minutes !== undefined) && (
                                             <div
