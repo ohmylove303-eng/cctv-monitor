@@ -46,12 +46,16 @@ export interface ForensicRouteContext {
     roadPreset: RoadPreset;
     roadLabel: string;
     originId: string;
+    originLabel: string;
+    destinationId?: string | null;
+    destinationLabel?: string | null;
     direction: 'forward' | 'reverse';
-    directionSource: 'manual' | 'token_hint' | 'density';
+    directionSource: 'manual' | 'token_hint' | 'density' | 'destination';
     speedKph: number;
     scopeMode: RouteScopeMode;
     scopeLabel: string;
     bundleCount: number;
+    segmentCount: number;
     focusCount: number;
     prioritizedIds: string[];
     focusIds: string[];
@@ -98,6 +102,8 @@ export interface ForensicResult {
     confidence: number;
     verdict: string;
     vehicle_count?: number;
+    ocr_status?: 'not_available' | 'target_hint_only' | 'ocr_active';
+    ocr_engine?: string | null;
     target_plate?: string;
     target_color?: string;
     target_vehicle_type?: string;

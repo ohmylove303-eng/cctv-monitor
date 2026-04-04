@@ -25,15 +25,38 @@ export type RouteMonitoringCandidate = {
     timeWindowLabel: string;
 };
 
+export type RouteQuerySuggestion = {
+    id: string;
+    name: string;
+    region: CctvItem['region'];
+    address: string;
+    score: number;
+    matchReason?: string;
+    routeDistanceKm?: number;
+    distanceKm?: number;
+    etaMinutes?: number;
+    timeWindowLabel?: string;
+};
+
 export type RouteMonitoringPlan = {
     roadPreset: RoadPreset;
     roadLabel: string;
     originId: string;
+    originLabel: string;
+    startQuery: string;
+    startMatched: boolean;
+    startSuggestions: RouteQuerySuggestion[];
+    destinationId: string | null;
+    destinationLabel: string | null;
+    destinationQuery: string;
+    destinationMatched: boolean;
+    destinationSuggestions: RouteQuerySuggestion[];
     bundleCount: number;
+    segmentCount: number;
     focusCount: number;
     direction: RouteDirection;
     resolvedDirection: 'forward' | 'reverse';
-    directionSource: 'manual' | 'token_hint' | 'density';
+    directionSource: 'manual' | 'token_hint' | 'density' | 'destination';
     speedKph: number;
     candidates: RouteMonitoringCandidate[];
     prioritizedIds: string[];
@@ -70,6 +93,8 @@ export function assessTravelWindow(expectedEtaMinutes?: number, observedMinutes?
 type RouteMonitoringOptions = {
     direction: RouteDirection;
     speedKph: number;
+    startQuery?: string;
+    destinationQuery?: string;
 };
 
 const ROAD_DIRECTION_HINTS: Partial<Record<RoadPreset, { forward: string[]; reverse: string[] }>> = {
@@ -123,6 +148,151 @@ function getRouteScopeLabel(scopeMode: RouteScopeMode) {
         default:
             return '전체 ITS';
     }
+}
+
+function scoreRouteQueryMatch(item: CctvItem, query: string) {
+    const normalizedQuery = normalizeText(query);
+    if (!normalizedQuery) return 0;
+
+    const queryTokens = normalizedQuery.split(' ').filter((token) => token.length >= 2);
+    const haystack = normalizeText(`${item.name} ${item.district} ${item.address}`);
+    const nameText = normalizeText(item.name);
+    const districtText = normalizeText(item.district);
+    const addressText = normalizeText(item.address);
+
+    let score = 0;
+
+    if (nameText === normalizedQuery) score += 260;
+    if (addressText.includes(normalizedQuery)) score += 180;
+    if (haystack.includes(normalizedQuery)) score += 160;
+    if (districtText.includes(normalizedQuery)) score += 80;
+
+    for (const token of queryTokens) {
+        if (nameText.includes(token)) score += 70;
+        if (districtText.includes(token)) score += 45;
+        if (addressText.includes(token)) score += 35;
+    }
+
+    return score;
+}
+
+function buildRouteQueryMatchReason(item: CctvItem, query: string) {
+    const normalizedQuery = normalizeText(query);
+    if (!normalizedQuery) return undefined;
+
+    const queryTokens = normalizedQuery.split(' ').filter((token) => token.length >= 2);
+    const nameText = normalizeText(item.name);
+    const districtText = normalizeText(item.district);
+    const addressText = normalizeText(item.address);
+    const matchedTokens = queryTokens.filter((token) =>
+        nameText.includes(token) || districtText.includes(token) || addressText.includes(token)
+    );
+
+    const reasons: string[] = [];
+
+    if (nameText === normalizedQuery) {
+        reasons.push('이름 완전일치');
+    } else if (nameText.includes(normalizedQuery)) {
+        reasons.push('이름 일치');
+    }
+
+    if (addressText.includes(normalizedQuery)) {
+        reasons.push('주소 일치');
+    } else if (districtText.includes(normalizedQuery)) {
+        reasons.push('지역 일치');
+    }
+
+    if (matchedTokens.length > 0) {
+        reasons.push(`토큰: ${matchedTokens.slice(0, 3).join(', ')}`);
+    }
+
+    return reasons.join(' · ') || undefined;
+}
+
+function findRouteQueryMatch(items: CctvItem[], query?: string, excludeId?: string) {
+    const trimmedQuery = query?.trim();
+    if (!trimmedQuery) {
+        return null;
+    }
+
+    const ranked = items
+        .filter((item) => item.id !== excludeId)
+        .map((item) => ({
+            item,
+            score: scoreRouteQueryMatch(item, trimmedQuery),
+        }))
+        .filter((candidate) => candidate.score >= 70)
+        .sort((left, right) =>
+            right.score - left.score
+            || left.item.name.localeCompare(right.item.name, 'ko')
+        );
+
+    return ranked[0]?.item ?? null;
+}
+
+function findRouteQuerySuggestions(items: CctvItem[], query?: string, excludeId?: string) {
+    const trimmedQuery = query?.trim();
+    if (!trimmedQuery) {
+        return [];
+    }
+
+    return items
+        .filter((item) => item.id !== excludeId)
+        .map((item) => ({
+            item,
+            score: scoreRouteQueryMatch(item, trimmedQuery),
+        }))
+        .filter((candidate) => candidate.score >= 70)
+        .sort((left, right) =>
+            right.score - left.score
+            || left.item.name.localeCompare(right.item.name, 'ko')
+        )
+        .slice(0, 3)
+        .map((candidate) => ({
+            id: candidate.item.id,
+            name: candidate.item.name,
+            region: candidate.item.region,
+            address: candidate.item.address,
+            score: candidate.score,
+            matchReason: buildRouteQueryMatchReason(candidate.item, trimmedQuery),
+        }));
+}
+
+export function buildRouteQuerySuggestions(
+    items: CctvItem[],
+    roadPreset: RoadPreset,
+    query?: string,
+    options?: {
+        excludeId?: string;
+        referenceItem?: CctvItem | null;
+    },
+) {
+    if (roadPreset === 'all') {
+        return [];
+    }
+
+    const routePool = items.filter((item) =>
+        item.type === 'traffic'
+        && hasLiveTrafficStream(item)
+        && matchesRoadPreset(item, roadPreset)
+    );
+
+    if (routePool.length === 0) {
+        return [];
+    }
+
+    const routePoolById = new Map(routePool.map((item) => [item.id, item]));
+    return findRouteQuerySuggestions(routePool, query, options?.excludeId).map((suggestion) => {
+        const suggestionItem = routePoolById.get(suggestion.id);
+        const distanceKm = options?.referenceItem && suggestionItem
+            ? haversineKm(options.referenceItem.lat, options.referenceItem.lng, suggestionItem.lat, suggestionItem.lng)
+            : undefined;
+
+        return {
+            ...suggestion,
+            distanceKm: distanceKm !== undefined ? Number(distanceKm.toFixed(1)) : undefined,
+        };
+    });
 }
 
 function countTokenMatches(text: string, tokens: string[]) {
@@ -183,42 +353,59 @@ export function buildRouteMonitoringPlan(
     roadPreset: RoadPreset,
     options: RouteMonitoringOptions,
 ): RouteMonitoringPlan | null {
-    if (!origin || roadPreset === 'all') {
+    if (roadPreset === 'all') {
         return null;
     }
 
-    if (origin.type !== 'traffic' || !hasLiveTrafficStream(origin) || !matchesRoadPreset(origin, roadPreset)) {
-        return null;
-    }
-
-    const routeItems = items.filter((item) =>
-        item.id !== origin.id
-        && item.type === 'traffic'
+    const routePool = items.filter((item) =>
+        item.type === 'traffic'
         && hasLiveTrafficStream(item)
         && matchesRoadPreset(item, roadPreset)
     );
 
-    if (routeItems.length === 0) {
+    if (routePool.length === 0) {
         return null;
     }
 
-    const allRoutePoints = [origin, ...routeItems];
+    const startQuery = options.startQuery?.trim() ?? '';
+    const fallbackOrigin = origin && origin.type === 'traffic' && hasLiveTrafficStream(origin) && matchesRoadPreset(origin, roadPreset)
+        ? origin
+        : null;
+    const queryMatchedStart = findRouteQueryMatch(routePool, startQuery);
+    const startItem = queryMatchedStart ?? fallbackOrigin;
+
+    const rawStartSuggestions = queryMatchedStart || !startQuery
+        ? []
+        : findRouteQuerySuggestions(routePool, startQuery, fallbackOrigin?.id);
+
+    if (!startItem) {
+        return null;
+    }
+
+    const routeItems = routePool.filter((item) => item.id !== startItem.id);
+    const allRoutePoints = [startItem, ...routeItems];
     const projected = allRoutePoints.map((item) => ({
         id: item.id,
-        ...toLocalMeters(origin.lat, origin.lng, item.lat, item.lng),
+        ...toLocalMeters(startItem.lat, startItem.lng, item.lat, item.lng),
     }));
     const axis = computePrincipalAxis(projected.map(({ x, y }) => ({ x, y })));
     const perp = { x: -axis.uy, y: axis.ux };
 
     const normalizedSpeedKph = Math.min(120, Math.max(20, options.speedKph || 60));
 
+    const destinationQuery = options.destinationQuery?.trim() ?? '';
+    const destinationItem = findRouteQueryMatch(routePool, destinationQuery, startItem.id);
+    const rawDestinationSuggestions = destinationItem
+        ? []
+        : findRouteQuerySuggestions(routePool, destinationQuery, startItem.id);
+
     const rawCandidates = routeItems
         .map((item) => {
-            const relative = toLocalMeters(origin.lat, origin.lng, item.lat, item.lng);
+            const relative = toLocalMeters(startItem.lat, startItem.lng, item.lat, item.lng);
             const forwardMeters = relative.x * axis.ux + relative.y * axis.uy;
             const lateralMeters = Math.abs(relative.x * perp.x + relative.y * perp.y);
             const routeDistanceKm = Math.abs(forwardMeters) / 1000;
-            const distanceKm = haversineKm(origin.lat, origin.lng, item.lat, item.lng);
+            const distanceKm = haversineKm(startItem.lat, startItem.lng, item.lat, item.lng);
             const etaMinutes = routeDistanceKm > 0 ? Math.round((routeDistanceKm / normalizedSpeedKph) * 60) : 0;
 
             return {
@@ -235,15 +422,45 @@ export function buildRouteMonitoringPlan(
             };
         });
 
-    let resolvedDirection: 'forward' | 'reverse' = 'forward';
-    let directionSource: 'manual' | 'token_hint' | 'density' = 'density';
+    const destinationSuggestions = rawDestinationSuggestions.map((suggestion) => {
+        const candidate = rawCandidates.find((rawCandidate) => rawCandidate.id === suggestion.id);
+        return {
+            ...suggestion,
+            routeDistanceKm: candidate ? Number(candidate.routeDistanceKm.toFixed(1)) : undefined,
+            distanceKm: candidate ? Number(candidate.distanceKm.toFixed(1)) : undefined,
+            etaMinutes: candidate?.etaMinutes,
+            timeWindowLabel: candidate ? getEtaWindowLabel(candidate.etaMinutes) : undefined,
+        };
+    });
 
-    if (options.direction === 'forward' || options.direction === 'reverse') {
+    const routePoolById = new Map(routePool.map((item) => [item.id, item]));
+    const startSuggestions = rawStartSuggestions.map((suggestion) => {
+        const suggestionItem = routePoolById.get(suggestion.id);
+        const distanceKm = fallbackOrigin && suggestionItem
+            ? haversineKm(fallbackOrigin.lat, fallbackOrigin.lng, suggestionItem.lat, suggestionItem.lng)
+            : undefined;
+        return {
+            ...suggestion,
+            distanceKm: distanceKm !== undefined ? Number(distanceKm.toFixed(1)) : undefined,
+        };
+    });
+
+    let resolvedDirection: 'forward' | 'reverse' = 'forward';
+    let directionSource: 'manual' | 'token_hint' | 'density' | 'destination' = 'density';
+
+    const destinationCandidate = destinationItem
+        ? rawCandidates.find((candidate) => candidate.id === destinationItem.id)
+        : null;
+
+    if (destinationCandidate && Math.abs(destinationCandidate.signedForwardMeters) > 25) {
+        resolvedDirection = destinationCandidate.signedForwardMeters > 0 ? 'forward' : 'reverse';
+        directionSource = 'destination';
+    } else if (options.direction === 'forward' || options.direction === 'reverse') {
         resolvedDirection = options.direction;
         directionSource = 'manual';
     } else {
         const hint = ROAD_DIRECTION_HINTS[roadPreset];
-        const originText = normalizeText(`${origin.name} ${origin.address}`);
+        const originText = normalizeText(`${startItem.name} ${startItem.address}`);
         const forwardHintScore = hint ? countTokenMatches(originText, hint.forward) : 0;
         const reverseHintScore = hint ? countTokenMatches(originText, hint.reverse) : 0;
 
@@ -261,7 +478,21 @@ export function buildRouteMonitoringPlan(
         }
     }
 
+    const segmentLimitMeters = destinationCandidate ? Math.abs(destinationCandidate.signedForwardMeters) + 25 : null;
+
     const candidates = rawCandidates
+        .filter((candidate) => {
+            const directionAligned = resolvedDirection === 'forward'
+                ? candidate.signedForwardMeters > 25
+                : candidate.signedForwardMeters < -25;
+            if (!directionAligned) {
+                return false;
+            }
+            if (segmentLimitMeters === null) {
+                return true;
+            }
+            return Math.abs(candidate.signedForwardMeters) <= segmentLimitMeters;
+        })
         .map((candidate) => {
             const isForward = resolvedDirection === 'forward'
                 ? candidate.signedForwardMeters > 25
@@ -298,31 +529,40 @@ export function buildRouteMonitoringPlan(
             travelOrder: index + 1,
         }));
 
-    const focused = candidates.filter((candidate) => candidate.isForward && candidate.lateralOffsetMeters <= 500);
-    const fallbackFocused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 500);
+    const focused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 500);
+    const fallbackFocused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 700);
     const prioritizedFocus = (focused.length > 0 ? focused : fallbackFocused).slice(0, 8);
     const focusIds = prioritizedFocus.map((candidate) => candidate.id);
-    const forwardCandidates = candidates.filter((candidate) => candidate.isForward);
-    const immediateIds = forwardCandidates
+    const immediateIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '즉시')
         .map((candidate) => candidate.id);
-    const shortIds = forwardCandidates
+    const shortIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '단기')
         .map((candidate) => candidate.id);
-    const mediumIds = forwardCandidates
+    const mediumIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '중기')
         .map((candidate) => candidate.id);
-    const followupIds = forwardCandidates
+    const followupIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '후속')
         .map((candidate) => candidate.id);
-    const prioritizedIds = [origin.id, ...prioritizedFocus.map((candidate) => candidate.id), ...candidates.map((candidate) => candidate.id)]
+    const prioritizedIds = [startItem.id, ...prioritizedFocus.map((candidate) => candidate.id), ...candidates.map((candidate) => candidate.id)]
         .filter((id, index, array) => array.indexOf(id) === index);
 
     return {
         roadPreset,
         roadLabel: getRoadPresetLabel(roadPreset),
-        originId: origin.id,
+        originId: startItem.id,
+        originLabel: startItem.name,
+        startQuery,
+        startMatched: Boolean(queryMatchedStart) || !startQuery,
+        startSuggestions,
+        destinationId: destinationItem?.id ?? null,
+        destinationLabel: destinationItem?.name ?? null,
+        destinationQuery,
+        destinationMatched: Boolean(destinationItem) || !destinationQuery,
+        destinationSuggestions,
         bundleCount: routeItems.length + 1,
+        segmentCount: candidates.length + 1,
         focusCount: prioritizedFocus.length,
         direction: options.direction,
         resolvedDirection,
@@ -398,12 +638,16 @@ export function buildForensicRouteContext(
         roadPreset: plan.roadPreset,
         roadLabel: plan.roadLabel,
         originId: plan.originId,
+        originLabel: plan.originLabel,
+        destinationId: plan.destinationId,
+        destinationLabel: plan.destinationLabel,
         direction: plan.resolvedDirection,
         directionSource: plan.directionSource,
         speedKph: plan.speedKph,
         scopeMode,
         scopeLabel: getRouteScopeLabel(scopeMode),
         bundleCount: plan.bundleCount,
+        segmentCount: plan.segmentCount,
         focusCount: plan.focusCount,
         prioritizedIds: plan.prioritizedIds,
         focusIds: plan.focusIds,

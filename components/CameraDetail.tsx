@@ -21,7 +21,10 @@ interface Props {
     }>;
     routeMonitoring?: {
         roadLabel: string;
+        originLabel: string;
+        destinationLabel: string | null;
         bundleCount: number;
+        segmentCount: number;
         focusCount: number;
         directionLabel: string;
         directionSourceLabel: string;
@@ -616,7 +619,7 @@ export default function CameraDetail({
                                 도로축 집중 감시
                             </div>
                             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.5 }}>
-                                {routeMonitoring.roadLabel} 기준 {routeMonitoring.directionLabel} / {routeMonitoring.directionSourceLabel} / {routeMonitoring.scopeLabel}. 즉시 {routeMonitoring.immediateCount}대, 단기 {routeMonitoring.shortCount}대, 중기 {routeMonitoring.mediumCount}대를 먼저 보고, 전체 {routeMonitoring.bundleCount}대 중 우선 추적 {routeMonitoring.focusCount}대를 상단에 둡니다.
+                                {routeMonitoring.originLabel}{routeMonitoring.destinationLabel ? ` → ${routeMonitoring.destinationLabel}` : ''} / {routeMonitoring.roadLabel} 기준 {routeMonitoring.directionLabel} / {routeMonitoring.directionSourceLabel} / {routeMonitoring.scopeLabel}. 즉시 {routeMonitoring.immediateCount}대, 단기 {routeMonitoring.shortCount}대, 중기 {routeMonitoring.mediumCount}대를 먼저 보고, 구간 {routeMonitoring.segmentCount}대 중 우선 추적 {routeMonitoring.focusCount}대를 상단에 두며, 전체 도로축은 {routeMonitoring.bundleCount}대입니다.
                             </div>
                         </div>
                         {routeMonitoring.candidates.map((candidate) => (

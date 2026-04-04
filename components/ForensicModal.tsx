@@ -23,7 +23,10 @@ interface Props {
     trackScopeOverride?: ForensicTrackCamera[];
     routeFocusSummary?: {
         roadLabel: string;
+        originLabel: string;
+        destinationLabel: string | null;
         bundleCount: number;
+        segmentCount: number;
         focusCount: number;
         directionLabel: string;
         speedKph: number;
@@ -71,7 +74,7 @@ type BundleAnalysisSummary = {
 const DETECTION_STEPS = [
     { label: 'ITS 실시간 HLS 스트림 프레임 확보 중…', pct: 15 },
     { label: 'YOLO 차량 객체 검출 수행 중…', pct: 40 },
-    { label: '번호판 후보 OCR 정합도 계산 중…', pct: 65 },
+    { label: '입력 차량번호·색상·차종 단서 정리 중…', pct: 65 },
     { label: '차량 색상/차종 피처 벡터 정리 중…', pct: 85 },
     { label: '포렌식 해시 체인과 결과 증적화 중…', pct: 99 },
 ];
@@ -79,7 +82,7 @@ const DETECTION_STEPS = [
 const TRACK_STEPS = [
     { label: 'ITS 실시간 카메라 목록 수집 중…', pct: 18 },
     { label: 'YOLO 검출 결과와 차량 속성 비교 중…', pct: 42 },
-    { label: '번호판/색상/차종 유사도 스코어링 중…', pct: 68 },
+    { label: '차량번호 입력값·색상·차종 유사도 스코어링 중…', pct: 68 },
     { label: '카메라 간 통과 순서와 시간축 정렬 중…', pct: 88 },
     { label: '추적 결과 확정 및 리포트 생성 중…', pct: 99 },
 ];
@@ -104,6 +107,22 @@ function generateId(prefix: string) {
     return `${prefix}-${Date.now()}`;
 }
 
+function getPlateSignalLabel(result: Pick<ForensicResult, 'ocr_status'>) {
+    if (result.ocr_status === 'ocr_active') return '번호판 OCR 후보';
+    if (result.ocr_status === 'target_hint_only') return '입력 차량번호 단서';
+    return '번호판 OCR';
+}
+
+function getPlateSignalValue(result: Pick<ForensicResult, 'ocr_status' | 'plate_candidates' | 'target_plate'>) {
+    if (result.ocr_status === 'ocr_active') {
+        return result.plate_candidates?.join(', ') || '없음';
+    }
+    if (result.ocr_status === 'target_hint_only') {
+        return result.target_plate || '없음';
+    }
+    return '미구현';
+}
+
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
     const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
         ? raw.quality_report as Record<string, unknown>
@@ -113,7 +132,7 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
         job_id: String(raw.job_id ?? raw.jobId ?? generateId('analysis')),
         cctv_id: String(raw.cctv_id ?? raw.cctvId ?? cctv.id),
         timestamp: String(raw.timestamp ?? new Date().toISOString()),
-        algorithm: String(raw.algorithm ?? 'YOLO vehicle detect / OCR / MFSR chain'),
+        algorithm: String(raw.algorithm ?? 'YOLO vehicle detect / no-live-ocr'),
         input_hash: String(raw.input_hash ?? raw.inputHash ?? 'N/A'),
         result_hash: String(raw.result_hash ?? raw.resultHash ?? 'N/A'),
         chain_hash: String(raw.chain_hash ?? raw.chainHash ?? 'N/A'),
@@ -139,6 +158,13 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
         confidence: Number(raw.confidence ?? raw.score ?? 0),
         verdict: String(raw.verdict ?? raw.message ?? '차량 분석 완료'),
         vehicle_count: Number(raw.vehicle_count ?? raw.vehicleCount ?? 0),
+        ocr_status:
+            raw.ocr_status === 'ocr_active'
+                ? 'ocr_active'
+                : raw.ocr_status === 'target_hint_only'
+                    ? 'target_hint_only'
+                    : 'not_available',
+        ocr_engine: typeof raw.ocr_engine === 'string' ? raw.ocr_engine : null,
         target_plate: typeof raw.target_plate === 'string' ? raw.target_plate : undefined,
         target_color: typeof raw.target_color === 'string' ? raw.target_color : undefined,
         target_vehicle_type: typeof raw.target_vehicle_type === 'string' ? raw.target_vehicle_type : undefined,
@@ -660,6 +686,7 @@ export default function ForensicModal({
                     >
                         ITS 실시간 카메라에서만 YOLO 차량 검출과 추적을 수행합니다.
                         로컬 교통 CCTV는 지도 기준점용이므로 분석 대상에서 제외됩니다.
+                        현재 운영 버전은 차량 검출 중심이며, 번호판 OCR은 아직 실전 엔진이 연결되지 않았습니다.
                     </div>
 
                     {backendEnabled && backendProvider === 'fallback' && (
@@ -693,8 +720,8 @@ export default function ForensicModal({
                                 lineHeight: 1.7,
                             }}
                         >
-                            현재 추적은 {routeFocusSummary.roadLabel} 기준으로 동작합니다.
-                            {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 최초 지점 이후 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
+                            현재 추적은 {routeFocusSummary.originLabel}{routeFocusSummary.destinationLabel ? ` → ${routeFocusSummary.destinationLabel}` : ''} / {routeFocusSummary.roadLabel} 기준으로 동작합니다.
+                            {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 구간 {routeFocusSummary.segmentCount}대 중 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
                         </div>
                     )}
 
@@ -712,7 +739,7 @@ export default function ForensicModal({
                             }}
                         >
                             노선 그룹 분석 세션이 활성화되었습니다.
-                            {` ${routeContext.roadLabel} / ${routeContext.scopeLabel} 기준으로`}
+                            {` ${routeContext.originLabel}${routeContext.destinationLabel ? ` → ${routeContext.destinationLabel}` : ''} / ${routeContext.roadLabel} / ${routeContext.scopeLabel} 기준으로`}
                             {` 즉시 ${routeContext.immediateIds.length}대 → 단기 ${routeContext.shortIds.length}대 → 중기 ${routeContext.mediumIds.length}대 → 후속 ${routeContext.followupIds.length}대 순으로`}
                             차량번호·색상·차종 단서를 더 강하게 적용합니다.
                         </div>
@@ -956,7 +983,7 @@ export default function ForensicModal({
                                 {[
                                     { label: '입력 프레임', value: `${analysisResult.quality_report.total_input}장` },
                                     { label: '채택 프레임', value: `${analysisResult.quality_report.passed}장` },
-                                    { label: '번호판 후보', value: analysisResult.plate_candidates?.join(', ') || '없음' },
+                                    { label: getPlateSignalLabel(analysisResult), value: getPlateSignalValue(analysisResult) },
                                     { label: '이벤트', value: analysisResult.events_detected.join(', ') },
                                 ].map((row) => (
                                     <div
@@ -1006,7 +1033,7 @@ export default function ForensicModal({
                                 </div>
                                 <div style={{ fontSize: 11, color: '#e2e8f0', lineHeight: 1.6 }}>
                                     {bundleAnalysisSummary.scopeLabel} 기준 상위 {bundleAnalysisSummary.processed}대를 순차 분석했습니다.
-                                    {bundleAnalysisSummary.suggestedPlate ? ` 번호판 후보 ${bundleAnalysisSummary.suggestedPlate}` : ''}
+                                    {bundleAnalysisSummary.suggestedPlate ? ` 입력 차량번호 단서 ${bundleAnalysisSummary.suggestedPlate}` : ''}
                                     {bundleAnalysisSummary.suggestedColor ? ` · 색상 ${bundleAnalysisSummary.suggestedColor}` : ''}
                                     {bundleAnalysisSummary.suggestedVehicleType ? ` · 차종 ${bundleAnalysisSummary.suggestedVehicleType}` : ''}
                                 </div>
@@ -1044,7 +1071,7 @@ export default function ForensicModal({
                                         </div>
                                     </div>
                                     <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
-                                        번호판 후보 {hit.plate_candidates.length > 0 ? hit.plate_candidates.join(', ') : (hit.target_plate || '없음')}
+                                        차량번호 단서 {hit.plate_candidates.length > 0 ? hit.plate_candidates.join(', ') : (hit.target_plate || '없음')}
                                         {' · '}
                                         색상 {hit.target_color || '미상'}
                                         {' · '}

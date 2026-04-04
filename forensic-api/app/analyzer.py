@@ -95,6 +95,22 @@ def run_yolo_vehicle_count(frames: list[np.ndarray], settings: Settings) -> tupl
     return detections, labels
 
 
+def run_plate_ocr(
+    frames: list[np.ndarray],
+    request: AnalyzeRequest,
+    settings: Settings,
+) -> tuple[list[str], str, str | None]:
+    # OCR/ALPR hook. Keep the contract stable so we can add EasyOCR/PaddleOCR
+    # later without changing the API shape again.
+    if settings.forensic_demo_mode:
+        return [], "target_hint_only", None
+
+    if settings.ocr_engine.strip().lower() in {"", "disabled", "none", "off"}:
+        return [], "not_available", None
+
+    return [], "not_available", settings.ocr_engine
+
+
 def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     settings = get_settings()
     timestamp = now_kst()
@@ -120,7 +136,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             job_id=f"analysis-{uuid4().hex[:12]}",
             cctv_id=request.cctv_id,
             timestamp=timestamp,
-            algorithm="demo-yolo-vehicle-detect / synthetic-ocr / mfsr-chain",
+            algorithm="demo-yolo-vehicle-detect / target-hint / mfsr-chain",
             input_hash=input_hash,
             result_hash=result_hash,
             chain_hash=chain_hash,
@@ -136,14 +152,17 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             confidence=confidence,
             verdict="데모 차량 분석 완료",
             vehicle_count=vehicle_count,
+            ocr_status="target_hint_only",
+            ocr_engine=None,
             target_plate=request.target_plate,
             target_color=request.target_color,
             target_vehicle_type=request.target_vehicle_type,
-            plate_candidates=[request.target_plate] if request.target_plate else [],
+            plate_candidates=[],
         )
 
     frames = sample_frames(str(request.hls_url), settings.analyze_frame_limit)
     vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
+    plate_candidates, ocr_status, ocr_engine = run_plate_ocr(frames, request, settings)
 
     total_input = settings.analyze_frame_limit
     passed = len(frames)
@@ -161,7 +180,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         job_id=f"analysis-{uuid4().hex[:12]}",
         cctv_id=request.cctv_id,
         timestamp=timestamp,
-        algorithm="ultralytics-yolo / frame-sampling / mfsr-chain",
+        algorithm="ultralytics-yolo / frame-sampling / no-live-ocr",
         input_hash=input_hash,
         result_hash=result_hash,
         chain_hash=chain_hash,
@@ -177,10 +196,12 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         confidence=confidence,
         verdict="차량 검출 완료" if vehicle_count else "차량 검출 실패",
         vehicle_count=vehicle_count,
+        ocr_status=ocr_status,
+        ocr_engine=ocr_engine,
         target_plate=request.target_plate,
         target_color=request.target_color,
         target_vehicle_type=request.target_vehicle_type or (distinct_labels[0] if distinct_labels else None),
-        plate_candidates=[request.target_plate] if request.target_plate else [],
+        plate_candidates=plate_candidates,
     )
 
 

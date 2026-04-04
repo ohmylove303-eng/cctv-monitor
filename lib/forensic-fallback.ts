@@ -107,7 +107,7 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
         job_id: `analysis-${randomUUID().slice(0, 12)}`,
         cctv_id: cctvId,
         timestamp: nowIso(),
-        algorithm: 'nextjs-demo-yolo-fallback / synthetic-ocr / mfsr-chain',
+        algorithm: 'nextjs-demo-yolo-fallback / target-hint / mfsr-chain',
         ...chain,
         tsa_status: 'demo_fallback',
         generative_ai_used: false,
@@ -121,10 +121,12 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
         confidence,
         verdict: '내장 데모 차량 분석 완료',
         vehicle_count: vehicleCount,
+        ocr_status: 'target_hint_only',
+        ocr_engine: null,
         target_plate: payload.target_plate || null,
         target_color: payload.target_color || null,
         target_vehicle_type: payload.target_vehicle_type || null,
-        plate_candidates: payload.target_plate ? [payload.target_plate] : [],
+        plate_candidates: [],
     };
 }
 

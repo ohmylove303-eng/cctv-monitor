@@ -29,10 +29,58 @@ interface Props {
     onRouteSpeedKphChange: (v: number) => void;
     routeScopeMode: RouteScopeMode;
     onRouteScopeModeChange: (v: RouteScopeMode) => void;
+    routeStartQuery: string;
+    onRouteStartQueryChange: (v: string) => void;
+    routeDestinationQuery: string;
+    onRouteDestinationQueryChange: (v: string) => void;
+    routeRoadLabel?: string;
+    routeStartSuggestions?: Array<{
+        id: string;
+        name: string;
+        region: CctvItem['region'];
+        address: string;
+        score: number;
+        matchReason?: string;
+        distanceKm?: number;
+        previewSegmentCount?: number;
+        previewMaxEtaMinutes?: number;
+    }>;
     routePlanSummary?: {
         roadLabel: string;
+        originLabel: string;
+        startQuery: string;
+        startMatched: boolean;
+        startSuggestions: Array<{
+            id: string;
+            name: string;
+            region: CctvItem['region'];
+            address: string;
+            score: number;
+            matchReason?: string;
+            distanceKm?: number;
+            previewSegmentCount?: number;
+            previewMaxEtaMinutes?: number;
+        }>;
+        destinationLabel: string | null;
+        destinationQuery: string;
+        destinationMatched: boolean;
+        destinationSuggestions: Array<{
+            id: string;
+            name: string;
+            region: CctvItem['region'];
+            address: string;
+            score: number;
+            matchReason?: string;
+            routeDistanceKm?: number;
+            distanceKm?: number;
+            etaMinutes?: number;
+            timeWindowLabel?: string;
+            previewSegmentCount?: number;
+            previewMaxEtaMinutes?: number;
+        }>;
         focusCount: number;
         bundleCount: number;
+        segmentCount: number;
         directionLabel: string;
         directionSourceLabel: string;
         immediateCount: number;
@@ -66,6 +114,10 @@ export default function SidePanel({
     routeDirection, onRouteDirectionChange,
     routeSpeedKph, onRouteSpeedKphChange,
     routeScopeMode, onRouteScopeModeChange,
+    routeStartQuery, onRouteStartQueryChange,
+    routeDestinationQuery, onRouteDestinationQueryChange,
+    routeRoadLabel,
+    routeStartSuggestions = [],
     routePlanSummary = null,
     showMapOnlyTraffic, onShowMapOnlyTrafficChange,
     satelliteMode, onSatelliteModeChange,
@@ -388,6 +440,42 @@ export default function SidePanel({
                                     </button>
                                 ))}
                             </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <span style={{ fontSize: 9, color: '#94a3b8' }}>출발지 키워드</span>
+                                    <input
+                                        type="text"
+                                        value={routeStartQuery}
+                                        onChange={(event) => onRouteStartQueryChange(event.target.value)}
+                                        placeholder="예: 영종대교, 검단"
+                                        style={{
+                                            padding: '7px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                            background: 'rgba(15,23,42,0.55)',
+                                            color: '#e2e8f0',
+                                            fontSize: 10,
+                                        }}
+                                    />
+                                </label>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <span style={{ fontSize: 9, color: '#94a3b8' }}>도착지 키워드</span>
+                                    <input
+                                        type="text"
+                                        value={routeDestinationQuery}
+                                        onChange={(event) => onRouteDestinationQueryChange(event.target.value)}
+                                        placeholder="예: 공항, 시천교"
+                                        style={{
+                                            padding: '7px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                            background: 'rgba(15,23,42,0.55)',
+                                            color: '#e2e8f0',
+                                            fontSize: 10,
+                                        }}
+                                    />
+                                </label>
+                            </div>
                             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                 <span style={{ fontSize: 9, color: '#94a3b8' }}>예상 속도</span>
                                 <input
@@ -429,9 +517,180 @@ export default function SidePanel({
                             </div>
                             <div style={{ fontSize: 9, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
                                 {routePlanSummary
-                                    ? `${routePlanSummary.roadLabel} · ${routePlanSummary.directionLabel}(${routePlanSummary.directionSourceLabel}) · ${routePlanSummary.scopeLabel} · 즉시 ${routePlanSummary.immediateCount}대 / 단기 ${routePlanSummary.shortCount}대 / 중기 ${routePlanSummary.mediumCount}대 / 전체 ${routePlanSummary.bundleCount}대`
+                                    ? `${routePlanSummary.originLabel}${routePlanSummary.destinationLabel ? ` → ${routePlanSummary.destinationLabel}` : ''} · ${routePlanSummary.roadLabel} · ${routePlanSummary.directionLabel}(${routePlanSummary.directionSourceLabel}) · ${routePlanSummary.scopeLabel} · 즉시 ${routePlanSummary.immediateCount}대 / 단기 ${routePlanSummary.shortCount}대 / 중기 ${routePlanSummary.mediumCount}대 / 구간 ${routePlanSummary.segmentCount}대 / 전체 ${routePlanSummary.bundleCount}대`
                                     : '도로축 카메라를 하나 선택하면 추적 레이어가 지도 위에 추가됩니다.'}
                             </div>
+                            {!routePlanSummary && routeStartQuery && routeStartSuggestions.length > 0 && (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 9, color: '#38bdf8', marginBottom: 5 }}>
+                                        출발지 키워드와 완전 일치하는 CCTV가 없어 같은 도로축 시작 후보를 제안합니다.
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                        {routeStartSuggestions.map((suggestion) => (
+                                            <button
+                                                key={suggestion.id}
+                                                type="button"
+                                                onClick={() => onRouteStartQueryChange(suggestion.name)}
+                                                style={{
+                                                    padding: '7px 8px',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    background: 'rgba(56,189,248,0.10)',
+                                                    border: '1px solid rgba(56,189,248,0.22)',
+                                                    color: '#bae6fd',
+                                                    textAlign: 'left',
+                                                }}
+                                            >
+                                                <div style={{ fontSize: 10, fontWeight: 700 }}>{suggestion.name}</div>
+                                                <div style={{ fontSize: 9, color: '#cbd5e1', marginTop: 2 }}>
+                                                    {suggestion.address}
+                                                </div>
+                                                {suggestion.matchReason && (
+                                                    <div style={{ fontSize: 9, color: '#7dd3fc', marginTop: 3 }}>
+                                                        {suggestion.matchReason}
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: 6,
+                                                    marginTop: 4,
+                                                    fontSize: 9,
+                                                    color: '#bae6fd',
+                                                }}>
+                                                    <span>{suggestion.region}</span>
+                                                    {routeRoadLabel && <span>{routeRoadLabel}</span>}
+                                                    {suggestion.distanceKm !== undefined && (
+                                                        <span>현재 선택점 기준 {suggestion.distanceKm.toFixed(1)}km</span>
+                                                    )}
+                                                    {suggestion.previewSegmentCount !== undefined && (
+                                                        <span>구간 {suggestion.previewSegmentCount}대</span>
+                                                    )}
+                                                    {suggestion.previewMaxEtaMinutes !== undefined && (
+                                                        <span>최대 {suggestion.previewMaxEtaMinutes}분</span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {routePlanSummary && !routePlanSummary.startMatched && routePlanSummary.startQuery && routePlanSummary.startSuggestions.length > 0 && (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 9, color: '#38bdf8', marginBottom: 5 }}>
+                                        출발지 키워드와 완전 일치하는 CCTV가 없어 같은 도로축 시작 후보를 제안합니다.
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                        {routePlanSummary.startSuggestions.map((suggestion) => (
+                                            <button
+                                                key={suggestion.id}
+                                                type="button"
+                                                onClick={() => onRouteStartQueryChange(suggestion.name)}
+                                                style={{
+                                                    padding: '7px 8px',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    background: 'rgba(56,189,248,0.10)',
+                                                    border: '1px solid rgba(56,189,248,0.22)',
+                                                    color: '#bae6fd',
+                                                    textAlign: 'left',
+                                                }}
+                                            >
+                                                <div style={{ fontSize: 10, fontWeight: 700 }}>{suggestion.name}</div>
+                                                <div style={{ fontSize: 9, color: '#cbd5e1', marginTop: 2 }}>
+                                                    {suggestion.address}
+                                                </div>
+                                                {suggestion.matchReason && (
+                                                    <div style={{ fontSize: 9, color: '#7dd3fc', marginTop: 3 }}>
+                                                        {suggestion.matchReason}
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: 6,
+                                                    marginTop: 4,
+                                                    fontSize: 9,
+                                                    color: '#bae6fd',
+                                                }}>
+                                                    <span>{suggestion.region}</span>
+                                                    <span>{routePlanSummary.roadLabel}</span>
+                                                    {suggestion.distanceKm !== undefined && (
+                                                        <span>현재 선택점 기준 {suggestion.distanceKm.toFixed(1)}km</span>
+                                                    )}
+                                                    {suggestion.previewSegmentCount !== undefined && (
+                                                        <span>구간 {suggestion.previewSegmentCount}대</span>
+                                                    )}
+                                                    {suggestion.previewMaxEtaMinutes !== undefined && (
+                                                        <span>최대 {suggestion.previewMaxEtaMinutes}분</span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {routePlanSummary && !routePlanSummary.destinationMatched && routePlanSummary.destinationQuery && routePlanSummary.destinationSuggestions.length > 0 && (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{ fontSize: 9, color: '#fbbf24', marginBottom: 5 }}>
+                                        도착지 키워드와 완전 일치하는 CCTV가 없어 같은 도로축 후보를 제안합니다.
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                        {routePlanSummary.destinationSuggestions.map((suggestion) => (
+                                            <button
+                                                key={suggestion.id}
+                                                type="button"
+                                                onClick={() => onRouteDestinationQueryChange(suggestion.name)}
+                                                style={{
+                                                    padding: '7px 8px',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    background: 'rgba(251,191,36,0.10)',
+                                                    border: '1px solid rgba(251,191,36,0.22)',
+                                                    color: '#fde68a',
+                                                    textAlign: 'left',
+                                                }}
+                                            >
+                                                <div style={{ fontSize: 10, fontWeight: 700 }}>{suggestion.name}</div>
+                                                <div style={{ fontSize: 9, color: '#cbd5e1', marginTop: 2 }}>
+                                                    {suggestion.address}
+                                                </div>
+                                                {suggestion.matchReason && (
+                                                    <div style={{ fontSize: 9, color: '#fcd34d', marginTop: 3 }}>
+                                                        {suggestion.matchReason}
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: 6,
+                                                    marginTop: 4,
+                                                    fontSize: 9,
+                                                    color: '#fde68a',
+                                                }}>
+                                                    <span>{suggestion.region}</span>
+                                                    <span>{routePlanSummary.roadLabel}</span>
+                                                    {suggestion.routeDistanceKm !== undefined && (
+                                                        <span>구간 {suggestion.routeDistanceKm.toFixed(1)}km</span>
+                                                    )}
+                                                    {suggestion.etaMinutes !== undefined && (
+                                                        <span>ETA {suggestion.etaMinutes}분</span>
+                                                    )}
+                                                    {suggestion.timeWindowLabel && (
+                                                        <span>{suggestion.timeWindowLabel}</span>
+                                                    )}
+                                                    {suggestion.previewSegmentCount !== undefined && (
+                                                        <span>구간 {suggestion.previewSegmentCount}대</span>
+                                                    )}
+                                                    {suggestion.previewMaxEtaMinutes !== undefined && (
+                                                        <span>최대 {suggestion.previewMaxEtaMinutes}분</span>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

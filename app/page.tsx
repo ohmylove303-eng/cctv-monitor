@@ -16,7 +16,7 @@ import { buildForensicTrackScope, getForensicStatus } from '@/lib/forensic';
 import { hasLiveTrafficStream, isMapOnlyTrafficCamera } from '@/lib/traffic-sources';
 import { hasVerifiedCoordinate } from '@/lib/coordinate-quality';
 import { dedupeOperationalDisplayCctv } from '@/lib/display-cctv';
-import { buildForensicRouteContext, buildRouteMonitoringPlan, buildRouteScopedTrackScope } from '@/lib/route-monitoring';
+import { buildForensicRouteContext, buildRouteMonitoringPlan, buildRouteQuerySuggestions, buildRouteScopedTrackScope } from '@/lib/route-monitoring';
 
 type LiveTrafficRecommendation = {
     id: string;
@@ -50,10 +50,12 @@ function getRouteDirectionLabel(direction: RouteDirection) {
     }
 }
 
-function getRouteDirectionSourceLabel(source: 'manual' | 'token_hint' | 'density') {
+function getRouteDirectionSourceLabel(source: 'manual' | 'token_hint' | 'density' | 'destination') {
     switch (source) {
         case 'manual':
             return '수동';
+        case 'destination':
+            return '도착지';
         case 'token_hint':
             return '이름/주소';
         default:
@@ -70,6 +72,24 @@ function getRouteScopeLabel(scopeMode: RouteScopeMode) {
         default:
             return '전체 ITS';
     }
+}
+
+function summarizeRouteSuggestionPreview<T extends { id: string }>(
+    suggestions: T[],
+    buildPreview: (suggestion: T) => ReturnType<typeof buildRouteMonitoringPlan>,
+) {
+    return suggestions.map((suggestion) => {
+        const previewPlan = buildPreview(suggestion);
+        const previewMaxEtaMinutes = previewPlan && previewPlan.candidates.length > 0
+            ? Math.max(...previewPlan.candidates.map((candidate) => candidate.etaMinutes))
+            : undefined;
+
+        return {
+            ...suggestion,
+            previewSegmentCount: previewPlan?.segmentCount,
+            previewMaxEtaMinutes,
+        };
+    });
 }
 
 export default function DashboardPage() {
@@ -95,6 +115,8 @@ export default function DashboardPage() {
     const [routeDirection, setRouteDirection] = useState<RouteDirection>('auto');
     const [routeSpeedKph, setRouteSpeedKph] = useState(60);
     const [routeScopeMode, setRouteScopeMode] = useState<RouteScopeMode>('focus');
+    const [routeStartQuery, setRouteStartQuery] = useState('');
+    const [routeDestinationQuery, setRouteDestinationQuery] = useState('');
     const [showMapOnlyTraffic, setShowMapOnlyTraffic] = useState(false);
 
     // ─── 위성 옵션 (S-Loop OS vFinal) ──────────────────────────────────────────
@@ -260,8 +282,48 @@ export default function DashboardPage() {
         return buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
             direction: routeDirection,
             speedKph: routeSpeedKph,
+            startQuery: routeStartQuery,
+            destinationQuery: routeDestinationQuery,
         });
-    }, [displayCctv, roadPreset, routeDirection, routeSpeedKph, selectedCctv]);
+    }, [displayCctv, roadPreset, routeDestinationQuery, routeDirection, routeSpeedKph, routeStartQuery, selectedCctv]);
+
+    const routeStartSuggestions = useMemo(() => {
+        if (routeMonitoringPlan || roadPreset === 'all' || !routeStartQuery.trim()) {
+            return [];
+        }
+
+        const referenceItem = selectedCctv && selectedCctv.type === 'traffic' && hasLiveTrafficStream(selectedCctv)
+            ? selectedCctv
+            : null;
+
+        return buildRouteQuerySuggestions(displayCctv, roadPreset, routeStartQuery, {
+            excludeId: referenceItem?.id,
+            referenceItem,
+        });
+    }, [displayCctv, roadPreset, routeMonitoringPlan, routeStartQuery, selectedCctv]);
+
+    const routeStartSuggestionSummaries = useMemo(() => {
+        return summarizeRouteSuggestionPreview(routeStartSuggestions, (suggestion) =>
+            buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
+                direction: routeDirection,
+                speedKph: routeSpeedKph,
+                startQuery: suggestion.name,
+                destinationQuery: routeDestinationQuery,
+            })
+        );
+    }, [displayCctv, roadPreset, routeDestinationQuery, routeDirection, routeSpeedKph, routeStartSuggestions, selectedCctv]);
+
+    const routeDestinationSuggestionSummaries = useMemo(() => {
+        const suggestions = routeMonitoringPlan?.destinationSuggestions ?? [];
+        return summarizeRouteSuggestionPreview(suggestions, (suggestion) =>
+            buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
+                direction: routeDirection,
+                speedKph: routeSpeedKph,
+                startQuery: routeStartQuery,
+                destinationQuery: suggestion.name,
+            })
+        );
+    }, [displayCctv, roadPreset, routeDirection, routeMonitoringPlan, routeSpeedKph, routeStartQuery, selectedCctv]);
 
     const prioritizedTrackScope = useMemo(() => {
         const baseScope = buildForensicTrackScope(displayCctv);
@@ -305,8 +367,12 @@ export default function DashboardPage() {
             return;
         }
 
-        mapRef.current?.fitToItems(visibleMapItems);
-    }, [itsRoadOnly, roadPreset, visibleMapItems]);
+        const segmentItems = routeMonitoringPlan
+            ? visibleMapItems.filter((item) => routeMonitoringPlan.prioritizedIds.includes(item.id))
+            : [];
+
+        mapRef.current?.fitToItems(segmentItems.length >= 2 ? segmentItems : visibleMapItems);
+    }, [itsRoadOnly, roadPreset, routeMonitoringPlan, visibleMapItems]);
 
     const handleItsRoadOnlyChange = (next: boolean) => {
         setItsRoadOnly(next);
@@ -360,21 +426,43 @@ export default function DashboardPage() {
                         onItsRoadOnlyChange={handleItsRoadOnlyChange}
                         roadPreset={roadPreset}
                         onRoadPresetChange={handleRoadPresetChange}
-                    routeDirection={routeDirection}
-                    onRouteDirectionChange={setRouteDirection}
-                    routeSpeedKph={routeSpeedKph}
-                    onRouteSpeedKphChange={setRouteSpeedKph}
-                    routeScopeMode={routeScopeMode}
-                    onRouteScopeModeChange={setRouteScopeMode}
+                        routeDirection={routeDirection}
+                        onRouteDirectionChange={setRouteDirection}
+                        routeSpeedKph={routeSpeedKph}
+                        onRouteSpeedKphChange={setRouteSpeedKph}
+                        routeScopeMode={routeScopeMode}
+                        onRouteScopeModeChange={setRouteScopeMode}
+                        routeStartQuery={routeStartQuery}
+                        onRouteStartQueryChange={setRouteStartQuery}
+                        routeDestinationQuery={routeDestinationQuery}
+                        onRouteDestinationQueryChange={setRouteDestinationQuery}
+                        routeRoadLabel={roadPreset !== 'all' ? routeMonitoringPlan?.roadLabel ?? undefined : undefined}
+                        routeStartSuggestions={routeStartSuggestionSummaries}
                     routePlanSummary={routeMonitoringPlan ? {
                         roadLabel: routeMonitoringPlan.roadLabel,
+                        originLabel: routeMonitoringPlan.originLabel,
+                        startQuery: routeMonitoringPlan.startQuery,
+                        startMatched: routeMonitoringPlan.startMatched,
+                        startSuggestions: summarizeRouteSuggestionPreview(routeMonitoringPlan.startSuggestions, (suggestion) =>
+                            buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
+                                direction: routeDirection,
+                                speedKph: routeSpeedKph,
+                                startQuery: suggestion.name,
+                                destinationQuery: routeDestinationQuery,
+                            })
+                        ),
+                        destinationLabel: routeMonitoringPlan.destinationLabel,
+                        destinationQuery: routeMonitoringPlan.destinationQuery,
+                        destinationMatched: routeMonitoringPlan.destinationMatched,
+                        destinationSuggestions: routeDestinationSuggestionSummaries,
                         focusCount: routeMonitoringPlan.focusCount,
                         bundleCount: routeMonitoringPlan.bundleCount,
+                        segmentCount: routeMonitoringPlan.segmentCount,
                         directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
                         directionSourceLabel: getRouteDirectionSourceLabel(routeMonitoringPlan.directionSource),
-                        immediateCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && candidate.timeWindowLabel === '즉시').length,
-                        shortCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && candidate.timeWindowLabel === '단기').length,
-                        mediumCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && candidate.timeWindowLabel === '중기').length,
+                        immediateCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '즉시').length,
+                        shortCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '단기').length,
+                        mediumCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '중기').length,
                         scopeLabel: getRouteScopeLabel(routeScopeMode),
                     } : null}
                     showMapOnlyTraffic={showMapOnlyTraffic}
@@ -487,7 +575,10 @@ export default function DashboardPage() {
                             recommendedLiveCameras={recommendedLiveTraffic}
                             routeMonitoring={routeMonitoringPlan ? {
                                 roadLabel: routeMonitoringPlan.roadLabel,
+                                originLabel: routeMonitoringPlan.originLabel,
+                                destinationLabel: routeMonitoringPlan.destinationLabel,
                                 bundleCount: routeMonitoringPlan.bundleCount,
+                                segmentCount: routeMonitoringPlan.segmentCount,
                                 focusCount: routeMonitoringPlan.focusCount,
                                 directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
                                 directionSourceLabel: getRouteDirectionSourceLabel(routeMonitoringPlan.directionSource),
@@ -546,15 +637,18 @@ export default function DashboardPage() {
                     trackScopeOverride={prioritizedTrackScope}
                     routeFocusSummary={routeMonitoringPlan ? {
                         roadLabel: routeMonitoringPlan.roadLabel,
+                        originLabel: routeMonitoringPlan.originLabel,
+                        destinationLabel: routeMonitoringPlan.destinationLabel,
                         bundleCount: routeMonitoringPlan.bundleCount,
+                        segmentCount: routeMonitoringPlan.segmentCount,
                         focusCount: routeMonitoringPlan.focusCount,
                         directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
                         speedKph: routeMonitoringPlan.speedKph,
                         directionSourceLabel: getRouteDirectionSourceLabel(routeMonitoringPlan.directionSource),
-                        immediateCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && candidate.timeWindowLabel === '즉시').length,
-                        shortCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && (candidate.timeWindowLabel === '즉시' || candidate.timeWindowLabel === '단기')).length,
+                        immediateCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '즉시').length,
+                        shortCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '단기').length,
                         scopeLabel: getRouteScopeLabel(routeScopeMode),
-                        mediumCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.isForward && candidate.timeWindowLabel === '중기').length,
+                        mediumCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '중기').length,
                     } : null}
                     routeContext={forensicRouteContext}
                     backendEnabled={forensicStatus.enabled}
