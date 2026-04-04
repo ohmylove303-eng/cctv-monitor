@@ -11,17 +11,17 @@ services:
       - key: PORT
         value: "10000"
       - key: FORENSIC_DEMO_MODE
-        value: "true"
+        value: "false"
       - key: YOLO_MODEL_PATH
         value: "yolov8n.pt"
       - key: YOLO_CONFIDENCE
         value: "0.25"
       - key: OCR_ENGINE
-        value: "disabled"
+        value: "easyocr"
       - key: OCR_LANG_LIST
         value: "ko,en"
       - key: OCR_FRAME_LIMIT
-        value: "4"
+        value: "2"
       - key: ANALYZE_FRAME_LIMIT
         value: "18"
       - key: TRACK_CAMERA_LIMIT
