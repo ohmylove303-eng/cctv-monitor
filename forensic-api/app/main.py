@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 
-from .analyzer import analyze_stream, build_track_result
+from .analyzer import analyze_stream, build_track_result, get_ocr_runtime_state
 from .models import AnalyzeRequest, AnalyzeResponse, TrackRequest, TrackResponse
 from .settings import get_settings
 from .store import get_tracking_result, save_tracking_result
@@ -30,6 +30,7 @@ def healthz():
     return {
         "status": "ok",
         "mode": "demo" if settings.forensic_demo_mode else "yolo",
+        "ocr": get_ocr_runtime_state(),
     }
 
 

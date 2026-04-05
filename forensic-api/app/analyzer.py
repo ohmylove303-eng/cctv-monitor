@@ -15,6 +15,12 @@ from .settings import Settings, get_settings
 
 KST = timezone(timedelta(hours=9))
 VEHICLE_CLASS_IDS = {2: "sedan", 3: "motorcycle", 5: "bus", 7: "truck"}
+OCR_RUNTIME_STATE = {
+    "engine": None,
+    "attempted": False,
+    "ready": False,
+    "error": None,
+}
 PLATE_REGEXES = [
     re.compile(r"\d{2,3}[가-힣]\d{4}"),
     re.compile(r"[가-힣]{1,2}\d{2,3}[가-힣]\d{4}"),
@@ -58,14 +64,38 @@ def get_yolo_model() -> Any | None:
 def get_easyocr_reader() -> Any | None:
     settings = get_settings()
     if settings.forensic_demo_mode:
+        OCR_RUNTIME_STATE.update({
+            "engine": "disabled",
+            "attempted": False,
+            "ready": False,
+            "error": "FORENSIC_DEMO_MODE=true",
+        })
         return None
 
-    if settings.ocr_engine.strip().lower() != "easyocr":
+    engine = settings.ocr_engine.strip().lower()
+    if engine != "easyocr":
+        OCR_RUNTIME_STATE.update({
+            "engine": settings.ocr_engine,
+            "attempted": False,
+            "ready": False,
+            "error": "OCR_ENGINE is not easyocr",
+        })
         return None
+
+    OCR_RUNTIME_STATE.update({
+        "engine": "easyocr",
+        "attempted": True,
+        "ready": False,
+        "error": None,
+    })
 
     try:
         import easyocr
-    except Exception:
+    except Exception as error:
+        OCR_RUNTIME_STATE.update({
+            "ready": False,
+            "error": f"import_failed: {error}",
+        })
         return None
 
     try:
@@ -74,9 +104,29 @@ def get_easyocr_reader() -> Any | None:
             for token in settings.ocr_lang_list.split(",")
             if token.strip()
         ] or ["ko", "en"]
-        return easyocr.Reader(languages, gpu=False, verbose=False)
-    except Exception:
+        reader = easyocr.Reader(languages, gpu=False, verbose=False)
+        OCR_RUNTIME_STATE.update({
+            "ready": True,
+            "error": None,
+        })
+        return reader
+    except Exception as error:
+        OCR_RUNTIME_STATE.update({
+            "ready": False,
+            "error": f"reader_init_failed: {error}",
+        })
         return None
+
+
+def get_ocr_runtime_state() -> dict[str, Any]:
+    settings = get_settings()
+    state = {
+        "engine": settings.ocr_engine,
+        "attempted": OCR_RUNTIME_STATE["attempted"],
+        "ready": OCR_RUNTIME_STATE["ready"],
+        "error": OCR_RUNTIME_STATE["error"],
+    }
+    return state
 
 
 def sample_frames(stream_url: str, frame_limit: int) -> list[np.ndarray]:
