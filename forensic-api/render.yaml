@@ -21,9 +21,15 @@ services:
       - key: OCR_LANG_LIST
         value: "ko,en"
       - key: OCR_FRAME_LIMIT
-        value: "2"
+        value: "1"
       - key: ANALYZE_FRAME_LIMIT
-        value: "18"
+        value: "4"
+      - key: STREAM_OPEN_TIMEOUT_MS
+        value: "5000"
+      - key: STREAM_READ_TIMEOUT_MS
+        value: "4000"
+      - key: STREAM_TOTAL_BUDGET_MS
+        value: "12000"
       - key: TRACK_CAMERA_LIMIT
         value: "24"
       - key: TRACK_HIT_LIMIT

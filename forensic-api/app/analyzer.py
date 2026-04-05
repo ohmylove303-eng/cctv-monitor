@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import random
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -135,13 +136,23 @@ def sample_frames(stream_url: str, frame_limit: int) -> list[np.ndarray]:
     except Exception:
         return []
 
-    capture = cv2.VideoCapture(stream_url)
+    settings = get_settings()
+    capture = cv2.VideoCapture(stream_url, getattr(cv2, "CAP_FFMPEG", 0))
+    if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+        capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, settings.stream_open_timeout_ms)
+    if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+        capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, settings.stream_read_timeout_ms)
+    if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not capture.isOpened():
         return []
 
     frames: list[np.ndarray] = []
+    started = time.monotonic()
     try:
         while len(frames) < frame_limit:
+            if (time.monotonic() - started) * 1000 >= settings.stream_total_budget_ms:
+                break
             ok, frame = capture.read()
             if not ok or frame is None:
                 break
@@ -265,6 +276,9 @@ def run_plate_ocr(
     if engine != "easyocr":
         return [], "not_available", settings.ocr_engine
 
+    if not frames:
+        return [], "not_available", settings.ocr_engine
+
     reader = get_easyocr_reader()
     if reader is None:
         return [], "not_available", settings.ocr_engine
@@ -328,7 +342,12 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
 
     frames = sample_frames(str(request.hls_url), settings.analyze_frame_limit)
     vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
-    plate_candidates, ocr_status, ocr_engine = run_plate_ocr(frames, request, settings)
+    should_run_ocr = vehicle_count > 0 and len(frames) > 0
+    plate_candidates, ocr_status, ocr_engine = (
+        run_plate_ocr(frames, request, settings)
+        if should_run_ocr
+        else ([], "not_available", settings.ocr_engine if settings.ocr_engine.strip().lower() not in {"", "disabled", "none", "off"} else None)
+    )
 
     total_input = settings.analyze_frame_limit
     passed = len(frames)
