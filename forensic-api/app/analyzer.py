@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import random
 import re
+import subprocess
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -131,12 +134,17 @@ def get_ocr_runtime_state() -> dict[str, Any]:
 
 
 def sample_frames(stream_url: str, frame_limit: int) -> list[np.ndarray]:
+    settings = get_settings()
+
+    frames = sample_frames_with_ffmpeg(stream_url, frame_limit, settings)
+    if frames:
+        return frames
+
     try:
         import cv2
     except Exception:
         return []
 
-    settings = get_settings()
     capture = cv2.VideoCapture(stream_url, getattr(cv2, "CAP_FFMPEG", 0))
     if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
         capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, settings.stream_open_timeout_ms)
@@ -161,6 +169,59 @@ def sample_frames(stream_url: str, frame_limit: int) -> list[np.ndarray]:
         capture.release()
 
     return frames
+
+
+def sample_frames_with_ffmpeg(stream_url: str, frame_limit: int, settings: Settings) -> list[np.ndarray]:
+    try:
+        import cv2
+    except Exception:
+        return []
+
+    effective_limit = max(1, min(frame_limit, 2))
+    timeout_seconds = max(4, int(settings.stream_total_budget_ms / 1000) + 2)
+
+    with tempfile.TemporaryDirectory(prefix="forensic-frames-") as temp_dir:
+        output_pattern = os.path.join(temp_dir, "frame-%02d.jpg")
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-rw_timeout",
+            str(settings.stream_read_timeout_ms * 1000),
+            "-threads",
+            "1",
+            "-i",
+            stream_url,
+            "-frames:v",
+            str(effective_limit),
+            "-q:v",
+            "2",
+            output_pattern,
+        ]
+
+        try:
+            subprocess.run(
+                command,
+                check=False,
+                timeout=timeout_seconds,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            return []
+
+        frames: list[np.ndarray] = []
+        for index in range(1, effective_limit + 1):
+            frame_path = os.path.join(temp_dir, f"frame-{index:02d}.jpg")
+            if not os.path.exists(frame_path):
+                continue
+            frame = cv2.imread(frame_path)
+            if frame is not None:
+                frames.append(frame)
+
+        return frames
 
 
 def run_yolo_vehicle_count(frames: list[np.ndarray], settings: Settings) -> tuple[int, list[str]]:
