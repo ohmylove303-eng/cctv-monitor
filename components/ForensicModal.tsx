@@ -110,6 +110,9 @@ function generateId(prefix: string) {
 function getPlateSignalLabel(result: Pick<ForensicResult, 'ocr_status'>) {
     if (result.ocr_status === 'ocr_active') return '번호판 OCR 후보';
     if (result.ocr_status === 'target_hint_only') return '입력 차량번호 단서';
+    if (result.ocr_status === 'skipped_no_vehicle') return '번호판 OCR';
+    if (result.ocr_status === 'skipped_no_frames') return '번호판 OCR';
+    if (result.ocr_status === 'ocr_unavailable') return '번호판 OCR';
     return '번호판 OCR';
 }
 
@@ -119,6 +122,15 @@ function getPlateSignalValue(result: Pick<ForensicResult, 'ocr_status' | 'plate_
     }
     if (result.ocr_status === 'target_hint_only') {
         return result.target_plate || '없음';
+    }
+    if (result.ocr_status === 'skipped_no_vehicle') {
+        return '차량 검출이 없어 이번 프레임에서는 OCR을 건너뜀';
+    }
+    if (result.ocr_status === 'skipped_no_frames') {
+        return '스트림 프레임 확보 실패';
+    }
+    if (result.ocr_status === 'ocr_unavailable') {
+        return 'OCR 엔진 초기화 실패';
     }
     return '미구현';
 }
@@ -163,7 +175,13 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
                 ? 'ocr_active'
                 : raw.ocr_status === 'target_hint_only'
                     ? 'target_hint_only'
-                    : 'not_available',
+                    : raw.ocr_status === 'ocr_unavailable'
+                        ? 'ocr_unavailable'
+                        : raw.ocr_status === 'skipped_no_vehicle'
+                            ? 'skipped_no_vehicle'
+                            : raw.ocr_status === 'skipped_no_frames'
+                                ? 'skipped_no_frames'
+                                : 'not_available',
         ocr_engine: typeof raw.ocr_engine === 'string' ? raw.ocr_engine : null,
         target_plate: typeof raw.target_plate === 'string' ? raw.target_plate : undefined,
         target_color: typeof raw.target_color === 'string' ? raw.target_color : undefined,

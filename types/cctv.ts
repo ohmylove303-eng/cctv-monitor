@@ -102,7 +102,13 @@ export interface ForensicResult {
     confidence: number;
     verdict: string;
     vehicle_count?: number;
-    ocr_status?: 'not_available' | 'target_hint_only' | 'ocr_active';
+    ocr_status?:
+        | 'not_available'
+        | 'target_hint_only'
+        | 'ocr_active'
+        | 'ocr_unavailable'
+        | 'skipped_no_vehicle'
+        | 'skipped_no_frames';
     ocr_engine?: string | null;
     target_plate?: string;
     target_color?: string;

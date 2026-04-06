@@ -35,7 +35,14 @@ class AnalyzeResponse(BaseModel):
     confidence: float
     verdict: str
     vehicle_count: int = 0
-    ocr_status: Literal["not_available", "target_hint_only", "ocr_active"] = "not_available"
+    ocr_status: Literal[
+        "not_available",
+        "target_hint_only",
+        "ocr_active",
+        "ocr_unavailable",
+        "skipped_no_vehicle",
+        "skipped_no_frames",
+    ] = "not_available"
     ocr_engine: str | None = None
     target_plate: str | None = None
     target_color: str | None = None

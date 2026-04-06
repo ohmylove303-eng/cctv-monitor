@@ -275,6 +275,17 @@ def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str |
     if ocr_status == "ocr_active":
         return f"ultralytics-yolo / frame-sampling / {ocr_engine or 'ocr'}-hook"
 
+    if ocr_status == "ocr_unavailable":
+        requested_engine = settings.ocr_engine.strip().lower()
+        if requested_engine not in {"", "disabled", "none", "off"}:
+            return f"ultralytics-yolo / frame-sampling / {requested_engine}-unavailable"
+
+    if ocr_status == "skipped_no_vehicle":
+        return "ultralytics-yolo / frame-sampling / ocr-skipped-no-vehicle"
+
+    if ocr_status == "skipped_no_frames":
+        return "ultralytics-yolo / frame-sampling / ocr-skipped-no-frames"
+
     requested_engine = settings.ocr_engine.strip().lower()
     if requested_engine not in {"", "disabled", "none", "off"}:
         return f"ultralytics-yolo / frame-sampling / {requested_engine}-unavailable"
@@ -335,14 +346,14 @@ def run_plate_ocr(
         return [], "not_available", None
 
     if engine != "easyocr":
-        return [], "not_available", settings.ocr_engine
+        return [], "ocr_unavailable", settings.ocr_engine
 
     if not frames:
-        return [], "not_available", settings.ocr_engine
+        return [], "skipped_no_frames", settings.ocr_engine
 
     reader = get_easyocr_reader()
     if reader is None:
-        return [], "not_available", settings.ocr_engine
+        return [], "ocr_unavailable", settings.ocr_engine
 
     ocr_texts: list[str] = []
     for frame in frames[: settings.ocr_frame_limit]:
@@ -403,11 +414,16 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
 
     frames = sample_frames(str(request.hls_url), settings.analyze_frame_limit)
     vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
-    should_run_ocr = vehicle_count > 0 and len(frames) > 0
+    has_target_plate_hint = bool((request.target_plate or "").strip())
+    should_run_ocr = len(frames) > 0 and (vehicle_count > 0 or has_target_plate_hint)
     plate_candidates, ocr_status, ocr_engine = (
         run_plate_ocr(frames, request, settings)
         if should_run_ocr
-        else ([], "not_available", settings.ocr_engine if settings.ocr_engine.strip().lower() not in {"", "disabled", "none", "off"} else None)
+        else (
+            [],
+            "skipped_no_frames" if len(frames) == 0 else "skipped_no_vehicle",
+            settings.ocr_engine if settings.ocr_engine.strip().lower() not in {"", "disabled", "none", "off"} else None,
+        )
     )
 
     total_input = settings.analyze_frame_limit
