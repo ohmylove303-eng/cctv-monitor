@@ -414,8 +414,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
 
     frames = sample_frames(str(request.hls_url), settings.analyze_frame_limit)
     vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
-    has_target_plate_hint = bool((request.target_plate or "").strip())
-    should_run_ocr = len(frames) > 0 and (vehicle_count > 0 or has_target_plate_hint)
+    should_run_ocr = len(frames) > 0 and vehicle_count > 0
     plate_candidates, ocr_status, ocr_engine = (
         run_plate_ocr(frames, request, settings)
         if should_run_ocr
