@@ -65,6 +65,7 @@ export async function analyzeCctv(
     targetColor?: string,
     targetVehicleType?: string,
     routeContext?: ForensicRouteContext,
+    analysisMode: 'scan' | 'verify' = 'verify',
 ) {
     const res = await fetch('/api/forensic/analyze', {
         method: 'POST',
@@ -75,6 +76,7 @@ export async function analyzeCctv(
             target_plate: targetPlate,
             target_color: targetColor,
             target_vehicle_type: targetVehicleType,
+            analysis_mode: analysisMode,
             route_context: routeContext,
         }),
     });

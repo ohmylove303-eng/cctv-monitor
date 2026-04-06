@@ -59,11 +59,14 @@ type BundleAnalysisHit = {
     expected_eta_minutes?: number;
     time_window_label?: string;
     is_route_focus?: boolean;
+    analysis_stage: 'scan' | 'verify';
 };
 
 type BundleAnalysisSummary = {
     processed: number;
     total: number;
+    scanProcessed: number;
+    verifyProcessed: number;
     scopeLabel: string;
     hits: BundleAnalysisHit[];
     suggestedPlate?: string;
@@ -273,7 +276,7 @@ function normalizeTrackingResult(
 }
 
 function buildBundleAnalysisSummary(
-    rawResults: Array<ForensicResult & { cctvMeta: ForensicTrackCamera }>,
+    rawResults: Array<ForensicResult & { cctvMeta: ForensicTrackCamera; analysisStage: 'scan' | 'verify' }>,
     routeFocusSummary: Props['routeFocusSummary'],
 ): BundleAnalysisSummary {
     const sorted = [...rawResults]
@@ -290,6 +293,8 @@ function buildBundleAnalysisSummary(
     return {
         processed: rawResults.length,
         total: rawResults.length,
+        scanProcessed: rawResults.filter((item) => item.analysisStage === 'scan').length,
+        verifyProcessed: rawResults.filter((item) => item.analysisStage === 'verify').length,
         scopeLabel: routeFocusSummary?.scopeLabel ?? '우선 그룹',
         suggestedPlate: suggestedPlate || undefined,
         suggestedColor,
@@ -307,6 +312,7 @@ function buildBundleAnalysisSummary(
             expected_eta_minutes: item.cctvMeta.expectedEtaMinutes,
             time_window_label: item.cctvMeta.timeWindowLabel,
             is_route_focus: item.cctvMeta.isRouteFocus,
+            analysis_stage: item.analysisStage,
         })),
     };
 }
@@ -416,6 +422,7 @@ export default function ForensicModal({
                     targetColor !== '미지정' ? targetColor : undefined,
                     targetVehicleType !== '미지정' ? targetVehicleType : undefined,
                     routeContext || undefined,
+                    'verify',
                 ),
             ]);
 
@@ -454,7 +461,7 @@ export default function ForensicModal({
         const runId = runIdRef.current;
 
         try {
-            const results: Array<ForensicResult & { cctvMeta: ForensicTrackCamera }> = [];
+            const results: Array<ForensicResult & { cctvMeta: ForensicTrackCamera; analysisStage: 'scan' | 'verify' }> = [];
 
             for (let index = 0; index < bundleScope.length; index += 1) {
                 if (runIdRef.current !== runId) {
@@ -468,19 +475,60 @@ export default function ForensicModal({
                 const rawResult = await analyzeCctv(
                     camera.id,
                     camera.streamUrl,
-                    targetPlate.trim() || undefined,
+                    undefined,
                     targetColor !== '미지정' ? targetColor : undefined,
                     targetVehicleType !== '미지정' ? targetVehicleType : undefined,
                     routeContext || undefined,
+                    'scan',
                 );
 
                 results.push({
                     ...normalizeAnalysisResult(rawResult, cctv),
                     cctv_id: camera.id,
                     cctvMeta: camera,
+                    analysisStage: 'scan',
                 });
 
                 await sleep(180);
+            }
+
+            const verifyCandidates = [...results]
+                .filter((item) => (item.vehicle_count ?? 0) > 0)
+                .sort((left, right) =>
+                    ((right.cctvMeta.isRouteFocus ? 1 : 0) - (left.cctvMeta.isRouteFocus ? 1 : 0))
+                    || ((right.vehicle_count ?? 0) - (left.vehicle_count ?? 0))
+                    || (right.confidence - left.confidence)
+                )
+                .slice(0, 2);
+
+            for (const candidate of verifyCandidates) {
+                if (runIdRef.current !== runId) {
+                    return;
+                }
+
+                const refinedRawResult = await analyzeCctv(
+                    candidate.cctvMeta.id,
+                    candidate.cctvMeta.streamUrl,
+                    targetPlate.trim() || undefined,
+                    targetColor !== '미지정' ? targetColor : undefined,
+                    targetVehicleType !== '미지정' ? targetVehicleType : undefined,
+                    routeContext || undefined,
+                    'verify',
+                );
+
+                const refined = {
+                    ...normalizeAnalysisResult(refinedRawResult, cctv),
+                    cctv_id: candidate.cctvMeta.id,
+                    cctvMeta: candidate.cctvMeta,
+                    analysisStage: 'verify' as const,
+                };
+
+                const existingIndex = results.findIndex((item) => item.cctvMeta.id === candidate.cctvMeta.id);
+                if (existingIndex >= 0) {
+                    results[existingIndex] = refined;
+                } else {
+                    results.push(refined);
+                }
             }
 
             if (runIdRef.current !== runId) {
@@ -1052,6 +1100,8 @@ export default function ForensicModal({
                                 </div>
                                 <div style={{ fontSize: 11, color: '#e2e8f0', lineHeight: 1.6 }}>
                                     {bundleAnalysisSummary.scopeLabel} 기준 상위 {bundleAnalysisSummary.processed}대를 순차 분석했습니다.
+                                    {` 1차 스캔 ${bundleAnalysisSummary.scanProcessed}대`}
+                                    {bundleAnalysisSummary.verifyProcessed > 0 ? ` · 2차 정밀확인 ${bundleAnalysisSummary.verifyProcessed}대` : ''}
                                     {bundleAnalysisSummary.suggestedPlate ? ` 입력 차량번호 단서 ${bundleAnalysisSummary.suggestedPlate}` : ''}
                                     {bundleAnalysisSummary.suggestedColor ? ` · 색상 ${bundleAnalysisSummary.suggestedColor}` : ''}
                                     {bundleAnalysisSummary.suggestedVehicleType ? ` · 차종 ${bundleAnalysisSummary.suggestedVehicleType}` : ''}
@@ -1078,6 +1128,7 @@ export default function ForensicModal({
                                                 {hit.time_window_label ? ` · ${hit.time_window_label}` : ''}
                                                 {hit.expected_eta_minutes !== undefined ? ` · ETA ${hit.expected_eta_minutes}분` : ''}
                                                 {hit.is_route_focus ? ' · 집중군' : ''}
+                                                {hit.analysis_stage === 'verify' ? ' · 2차 정밀' : ' · 1차 스캔'}
                                             </div>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>

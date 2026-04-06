@@ -1,6 +1,7 @@
 import { proxyForensic } from '@/lib/forensic-server';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 180;
 
 export async function POST(req: Request) {
     const body = await req.text();

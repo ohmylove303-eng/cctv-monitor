@@ -268,9 +268,14 @@ def extract_plate_candidates(texts: list[str]) -> list[str]:
     return found[:5]
 
 
-def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None) -> str:
+def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None, analysis_mode: str = "verify") -> str:
     if settings.forensic_demo_mode:
+        if analysis_mode == "scan":
+            return "demo-yolo-vehicle-detect / scan-only / mfsr-chain"
         return "demo-yolo-vehicle-detect / target-hint / mfsr-chain"
+
+    if analysis_mode == "scan":
+        return "ultralytics-yolo / scan-only"
 
     if ocr_status == "ocr_active":
         return f"ultralytics-yolo / frame-sampling / {ocr_engine or 'ocr'}-hook"
@@ -366,6 +371,7 @@ def run_plate_ocr(
 def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     settings = get_settings()
     timestamp = now_kst()
+    analysis_mode = request.analysis_mode or "verify"
 
     if settings.forensic_demo_mode:
         seed = sha256_text(f"{request.cctv_id}|{request.hls_url}|{request.target_plate or ''}")
@@ -388,7 +394,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             job_id=f"analysis-{uuid4().hex[:12]}",
             cctv_id=request.cctv_id,
             timestamp=timestamp,
-            algorithm=build_algorithm_label(settings, "target_hint_only", None),
+            algorithm=build_algorithm_label(settings, "target_hint_only", None, analysis_mode),
             input_hash=input_hash,
             result_hash=result_hash,
             chain_hash=chain_hash,
@@ -412,9 +418,10 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             plate_candidates=[],
         )
 
-    frames = sample_frames(str(request.hls_url), settings.analyze_frame_limit)
+    frame_limit = settings.analyze_frame_limit if analysis_mode == "verify" else max(1, min(2, settings.analyze_frame_limit))
+    frames = sample_frames(str(request.hls_url), frame_limit)
     vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
-    should_run_ocr = len(frames) > 0 and vehicle_count > 0
+    should_run_ocr = analysis_mode == "verify" and len(frames) > 0 and vehicle_count > 0
     plate_candidates, ocr_status, ocr_engine = (
         run_plate_ocr(frames, request, settings)
         if should_run_ocr
@@ -425,7 +432,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         )
     )
 
-    total_input = settings.analyze_frame_limit
+    total_input = frame_limit
     passed = len(frames)
     dropped = max(0, total_input - passed)
     distinct_labels = sorted(set(labels))
@@ -441,7 +448,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         job_id=f"analysis-{uuid4().hex[:12]}",
         cctv_id=request.cctv_id,
         timestamp=timestamp,
-        algorithm=build_algorithm_label(settings, ocr_status, ocr_engine),
+        algorithm=build_algorithm_label(settings, ocr_status, ocr_engine, analysis_mode),
         input_hash=input_hash,
         result_hash=result_hash,
         chain_hash=chain_hash,

@@ -17,6 +17,7 @@ class AnalyzeRequest(BaseModel):
     target_plate: str | None = None
     target_color: str | None = None
     target_vehicle_type: str | None = None
+    analysis_mode: Literal["scan", "verify"] = "verify"
 
 
 class AnalyzeResponse(BaseModel):

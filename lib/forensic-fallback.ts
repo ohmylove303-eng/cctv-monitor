@@ -6,6 +6,7 @@ type AnalyzeRequestPayload = {
     target_plate?: string;
     target_color?: string;
     target_vehicle_type?: string;
+    analysis_mode?: 'scan' | 'verify';
 };
 
 type TrackCameraPayload = {
@@ -89,7 +90,8 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
     const cctvId = payload.cctv_id?.trim() || 'unknown-cctv';
     const hlsUrl = payload.hls_url?.trim() || '';
     const seed = `${cctvId}|${hlsUrl}|${payload.target_plate || ''}|${payload.target_color || ''}|${payload.target_vehicle_type || ''}`;
-    const totalInput = 18;
+    const analysisMode = payload.analysis_mode === 'scan' ? 'scan' : 'verify';
+    const totalInput = analysisMode === 'scan' ? 4 : 18;
     const passed = 8 + hashInt(seed, 8, 1);
     const dropped = totalInput - passed;
     const vehicleCount = 1 + hashInt(seed, 4, 2);
@@ -107,7 +109,9 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
         job_id: `analysis-${randomUUID().slice(0, 12)}`,
         cctv_id: cctvId,
         timestamp: nowIso(),
-        algorithm: 'nextjs-demo-yolo-fallback / target-hint / mfsr-chain',
+        algorithm: analysisMode === 'scan'
+            ? 'nextjs-demo-yolo-fallback / scan-only / mfsr-chain'
+            : 'nextjs-demo-yolo-fallback / target-hint / mfsr-chain',
         ...chain,
         tsa_status: 'demo_fallback',
         generative_ai_used: false,
@@ -121,7 +125,7 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
         confidence,
         verdict: '내장 데모 차량 분석 완료',
         vehicle_count: vehicleCount,
-        ocr_status: 'target_hint_only',
+        ocr_status: analysisMode === 'scan' ? 'skipped_no_vehicle' : 'target_hint_only',
         ocr_engine: null,
         target_plate: payload.target_plate || null,
         target_color: payload.target_color || null,

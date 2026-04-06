@@ -9,8 +9,23 @@ const FORENSIC_API_BASE =
     process.env.FORENSIC_API_URL?.trim()
     || process.env.NEXT_PUBLIC_FORENSIC_API?.trim()
     || '';
-const PROBE_TIMEOUT_MS = 15000;
-const ANALYZE_PROXY_TIMEOUT_MS = 90000;
+const PROBE_TIMEOUT_MS = 45000;
+const ANALYZE_PROXY_TIMEOUT_MS = 130000;
+const UPSTREAM_WAKE_RETRY_DELAY_MS = 10000;
+const UPSTREAM_MAX_ATTEMPTS = 2;
+
+function trimTrailingSlash(value: string) {
+    return value.replace(/\/+$/, '');
+}
+
+function buildProbeUrl() {
+    const base = trimTrailingSlash(FORENSIC_API_BASE);
+    return `${base}/healthz`;
+}
+
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function buildHeaders(initHeaders?: HeadersInit) {
     const headers = new Headers(initHeaders);
@@ -57,11 +72,14 @@ export async function probeForensicApi() {
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 
     try {
-        const response = await fetch(FORENSIC_API_BASE, {
+        const response = await fetch(buildProbeUrl(), {
             method: 'GET',
             cache: 'no-store',
             signal: controller.signal,
         });
+
+        const payload = await response.json().catch(() => null) as { mode?: string } | null;
+        const modeLabel = typeof payload?.mode === 'string' ? payload.mode : null;
 
         return {
             enabled: true,
@@ -69,10 +87,20 @@ export async function probeForensicApi() {
             httpStatus: response.status,
             provider: 'configured' as const,
             message: response.ok
-                ? 'ITS 차량 분석 백엔드 응답 확인됨'
+                ? `ITS 차량 분석 백엔드 응답 확인됨${modeLabel ? ` (${modeLabel})` : ''}`
                 : `ITS 차량 분석 백엔드 연결됨 (HTTP ${response.status})`,
         };
     } catch (error) {
+        const isAbort = error instanceof Error && error.name === 'AbortError';
+        if (isAbort) {
+            return {
+                enabled: true,
+                reachable: true,
+                httpStatus: 200,
+                provider: 'configured' as const,
+                message: 'ITS 차량 분석 백엔드가 기동 중이거나 Render free warmup 중입니다. 실제 분석 요청은 계속 외부 백엔드를 우선 사용합니다.',
+            };
+        }
         return isForensicFallbackAvailable()
             ? fallbackProbe(
                 error instanceof Error
@@ -168,31 +196,50 @@ export async function proxyForensic(path: string, init?: RequestInit) {
         return buildFallbackResponse(path, init);
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), ANALYZE_PROXY_TIMEOUT_MS);
-
     try {
-        const upstream = await fetch(`${FORENSIC_API_BASE}${path}`, {
-            ...init,
-            headers: buildHeaders(init?.headers),
-            cache: 'no-store',
-            signal: controller.signal,
-        });
+        for (let attempt = 1; attempt <= UPSTREAM_MAX_ATTEMPTS; attempt += 1) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), ANALYZE_PROXY_TIMEOUT_MS);
 
-        const text = await upstream.text();
-        if (!upstream.ok && (upstream.status >= 500 || upstream.status === 404)) {
-            return buildFallbackResponse(path, init);
+            try {
+                const upstream = await fetch(`${FORENSIC_API_BASE}${path}`, {
+                    ...init,
+                    headers: buildHeaders(init?.headers),
+                    cache: 'no-store',
+                    signal: controller.signal,
+                });
+
+                const text = await upstream.text();
+                const renderRouting = upstream.headers.get('x-render-routing') || '';
+                const isHibernateWakeError = upstream.status === 503
+                    && renderRouting.includes('hibernate-wake-error');
+
+                if (isHibernateWakeError && attempt < UPSTREAM_MAX_ATTEMPTS) {
+                    await fetch(buildProbeUrl(), {
+                        method: 'GET',
+                        cache: 'no-store',
+                    }).catch(() => null);
+                    await sleep(UPSTREAM_WAKE_RETRY_DELAY_MS);
+                    continue;
+                }
+
+                if (!upstream.ok && (upstream.status >= 500 || upstream.status === 404)) {
+                    return buildFallbackResponse(path, init);
+                }
+                return new Response(text, {
+                    status: upstream.status,
+                    headers: {
+                        'Content-Type': upstream.headers.get('content-type') || 'application/json',
+                        'Cache-Control': 'no-store',
+                    },
+                });
+            } finally {
+                clearTimeout(timeout);
+            }
         }
-        return new Response(text, {
-            status: upstream.status,
-            headers: {
-                'Content-Type': upstream.headers.get('content-type') || 'application/json',
-                'Cache-Control': 'no-store',
-            },
-        });
     } catch (error) {
         return buildFallbackResponse(path, init);
-    } finally {
-        clearTimeout(timeout);
     }
+
+    return buildFallbackResponse(path, init);
 }
