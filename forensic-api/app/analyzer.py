@@ -224,27 +224,80 @@ def sample_frames_with_ffmpeg(stream_url: str, frame_limit: int, settings: Setti
         return frames
 
 
-def run_yolo_vehicle_count(frames: list[np.ndarray], settings: Settings) -> tuple[int, list[str]]:
+def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_per_frame: int = 2) -> list[np.ndarray]:
+    height, width = frame.shape[:2]
+    ranked_boxes = sorted(
+        boxes,
+        key=lambda box: max(0.0, (box[2] - box[0]) * (box[3] - box[1])),
+        reverse=True,
+    )
+
+    crops: list[np.ndarray] = []
+    for box in ranked_boxes[:max_crops_per_frame]:
+        x1, y1, x2, y2 = [int(round(value)) for value in box]
+        x1 = max(0, min(x1, width - 1))
+        x2 = max(0, min(x2, width))
+        y1 = max(0, min(y1, height - 1))
+        y2 = max(0, min(y2, height))
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        box_width = x2 - x1
+        box_height = y2 - y1
+        if box_width < 24 or box_height < 24:
+            continue
+
+        pad_x = max(4, int(box_width * 0.08))
+        pad_y = max(4, int(box_height * 0.08))
+
+        full_left = max(0, x1 - pad_x)
+        full_top = max(0, y1 - pad_y)
+        full_right = min(width, x2 + pad_x)
+        full_bottom = min(height, y2 + pad_y)
+        full_crop = frame[full_top:full_bottom, full_left:full_right]
+        if full_crop.size > 0:
+            crops.append(full_crop)
+
+        plate_band_top = y1 + int(box_height * 0.4)
+        plate_band_bottom = y2 + pad_y
+        plate_band = frame[
+            max(0, plate_band_top):min(height, plate_band_bottom),
+            full_left:full_right,
+        ]
+        if plate_band.size > 0:
+            crops.append(plate_band)
+
+    return crops
+
+
+def run_yolo_vehicle_scan(frames: list[np.ndarray], settings: Settings) -> tuple[int, list[str], list[np.ndarray]]:
     model = get_yolo_model()
     if model is None or not frames:
-        return 0, []
+        return 0, [], []
 
     detections = 0
     labels: list[str] = []
+    ocr_inputs: list[np.ndarray] = []
     for frame in frames:
         results = model.predict(frame, verbose=False, conf=settings.yolo_confidence)
+        frame_boxes: list[list[float]] = []
         for result in results:
             boxes = getattr(result, "boxes", None)
             if boxes is None or getattr(boxes, "cls", None) is None:
                 continue
             class_ids = boxes.cls.tolist()
-            for class_id in class_ids:
+            coords = boxes.xyxy.tolist() if getattr(boxes, "xyxy", None) is not None else []
+            for index, class_id in enumerate(class_ids):
                 class_int = int(class_id)
                 if class_int in VEHICLE_CLASS_IDS:
                     detections += 1
                     labels.append(VEHICLE_CLASS_IDS[class_int])
+                    if index < len(coords):
+                        frame_boxes.append(coords[index])
+        if frame_boxes:
+            ocr_inputs.extend(crop_vehicle_regions(frame, frame_boxes))
 
-    return detections, labels
+    return detections, labels, ocr_inputs
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -300,6 +353,7 @@ def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str |
 
 def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
     variants: list[Any] = [frame]
+    allowlist = "0123456789가나다라마바사아자차카타파하허호배국합서울부산대구인천광주대전울산세종경기강원충북충남전북전남경북경남제주"
 
     try:
         import cv2
@@ -319,7 +373,12 @@ def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
 
     for variant in variants:
         try:
-            entries = reader.readtext(variant, detail=1, paragraph=False)
+            entries = reader.readtext(
+                variant,
+                detail=1,
+                paragraph=False,
+                allowlist=allowlist,
+            )
         except Exception:
             continue
 
@@ -420,10 +479,10 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
 
     frame_limit = settings.analyze_frame_limit if analysis_mode == "verify" else max(1, min(2, settings.analyze_frame_limit))
     frames = sample_frames(str(request.hls_url), frame_limit)
-    vehicle_count, labels = run_yolo_vehicle_count(frames, settings)
+    vehicle_count, labels, ocr_inputs = run_yolo_vehicle_scan(frames, settings)
     should_run_ocr = analysis_mode == "verify" and len(frames) > 0 and vehicle_count > 0
     plate_candidates, ocr_status, ocr_engine = (
-        run_plate_ocr(frames, request, settings)
+        run_plate_ocr(ocr_inputs or frames[: settings.ocr_frame_limit], request, settings)
         if should_run_ocr
         else (
             [],
