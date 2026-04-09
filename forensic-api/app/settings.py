@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     forensic_demo_mode: bool = Field(default=True, alias="FORENSIC_DEMO_MODE")
-    yolo_model_path: str = Field(default="yolov8n.pt", alias="YOLO_MODEL_PATH")
+    yolo_model_path: str = Field(default="yolo26n.pt", alias="YOLO_MODEL_PATH")
     yolo_confidence: float = Field(default=0.25, alias="YOLO_CONFIDENCE")
     ocr_engine: str = Field(default="disabled", alias="OCR_ENGINE")
     ocr_lang_list: str = Field(default="ko,en", alias="OCR_LANG_LIST")

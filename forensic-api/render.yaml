@@ -13,7 +13,7 @@ services:
       - key: FORENSIC_DEMO_MODE
         value: "false"
       - key: YOLO_MODEL_PATH
-        value: "yolov8n.pt"
+        value: "yolo26n.pt"
       - key: YOLO_CONFIDENCE
         value: "0.25"
       - key: OCR_ENGINE
