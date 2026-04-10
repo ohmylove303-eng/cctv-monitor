@@ -412,6 +412,16 @@ function normalizeTrackingResult(
             time_window_label: timeWindowLabel,
             travel_assessment: travelAssessment.code,
             travel_assessment_label: travelAssessment.label,
+            travel_order: typeof hit.travel_order === 'number'
+                ? hit.travel_order
+                : typeof hit.travelOrder === 'number'
+                    ? hit.travelOrder
+                    : matchedCamera?.travelOrder,
+            is_route_focus: typeof hit.is_route_focus === 'boolean'
+                ? hit.is_route_focus
+                : typeof hit.isRouteFocus === 'boolean'
+                    ? hit.isRouteFocus
+                    : matchedCamera?.isRouteFocus,
         };
     });
 

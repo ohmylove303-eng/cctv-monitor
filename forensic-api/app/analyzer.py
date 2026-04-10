@@ -658,9 +658,44 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
                 time_window_label=camera.timeWindowLabel,
                 travel_assessment="unknown",
                 travel_assessment_label="판단 보류",
+                travel_order=camera.travelOrder,
+                is_route_focus=camera.isRouteFocus,
             )
         )
-    return sorted(hits, key=lambda hit: hit.timestamp)
+    return sort_track_hits_by_route(hits)
+
+
+def has_route_metadata(cameras: list[TrackCamera]) -> bool:
+    return any(
+        camera.travelOrder is not None
+        or camera.expectedEtaMinutes is not None
+        or camera.timeWindowLabel
+        or camera.isRouteFocus
+        for camera in cameras
+    )
+
+
+def sort_track_hits_by_route(hits: list[TrackHit]) -> list[TrackHit]:
+    return sorted(
+        hits,
+        key=lambda hit: (
+            hit.travel_order if hit.travel_order is not None else 9999,
+            hit.expected_eta_minutes if hit.expected_eta_minutes is not None else 9999,
+            hit.timestamp,
+            -hit.confidence,
+        ),
+    )
+
+
+def build_track_message(hit_count: int, cameras: list[TrackCamera], demo: bool = False) -> str:
+    if hit_count <= 0:
+        return "일치하는 차량 이동 후보가 없습니다."
+
+    action = "생성했습니다" if demo else "찾았습니다"
+    prefix = f"{hit_count}건의 {'데모 ' if demo else ''}차량 이동 후보를 {action}"
+    if has_route_metadata(cameras):
+        return f"{prefix}. 도로축 순서와 ETA 메타데이터를 보존해 정렬했습니다."
+    return prefix
 
 
 def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse:
@@ -674,7 +709,7 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
             status="completed",
             searched_cameras=len(cameras),
             hits=hits,
-            message=f"{len(hits)}건의 데모 이동 후보를 생성했습니다.",
+            message=build_track_message(len(hits), cameras, demo=True),
         )
 
     hits: list[TrackHit] = []
@@ -707,15 +742,18 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
                 time_window_label=camera.timeWindowLabel,
                 travel_assessment="unknown",
                 travel_assessment_label="판단 보류",
+                travel_order=camera.travelOrder,
+                is_route_focus=camera.isRouteFocus,
             )
         )
         if len(hits) >= settings.track_hit_limit:
             break
+    hits = sort_track_hits_by_route(hits)
 
     return TrackResponse(
         tracking_id=tracking_id,
         status="completed",
         searched_cameras=len(cameras),
         hits=hits,
-        message=f"{len(hits)}건의 차량 이동 후보를 찾았습니다." if hits else "일치하는 차량 이동 후보가 없습니다.",
+        message=build_track_message(len(hits), cameras),
     )

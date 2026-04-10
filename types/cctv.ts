@@ -135,6 +135,8 @@ export interface ForensicTrackingHit {
     time_window_label?: string;
     travel_assessment?: 'fast' | 'on_time' | 'delayed' | 'unknown';
     travel_assessment_label?: string;
+    travel_order?: number;
+    is_route_focus?: boolean;
 }
 
 export interface ForensicTrackingResult {

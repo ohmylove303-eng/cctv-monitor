@@ -90,6 +90,8 @@ class TrackHit(BaseModel):
     time_window_label: str | None = None
     travel_assessment: Literal["fast", "on_time", "delayed", "unknown"] | None = None
     travel_assessment_label: str | None = None
+    travel_order: int | None = None
+    is_route_focus: bool | None = None
 
 
 class TrackResponse(BaseModel):
