@@ -60,6 +60,10 @@ class TrackCamera(BaseModel):
     lng: float
     source: str | None = None
     streamUrl: str
+    expectedEtaMinutes: int | float | None = None
+    timeWindowLabel: str | None = None
+    travelOrder: int | None = None
+    isRouteFocus: bool | None = None
 
 
 class TrackRequest(BaseModel):
@@ -82,6 +86,10 @@ class TrackHit(BaseModel):
     plate_candidates: list[str] = Field(default_factory=list)
     color: str | None = None
     vehicle_type: str | None = None
+    expected_eta_minutes: int | float | None = None
+    time_window_label: str | None = None
+    travel_assessment: Literal["fast", "on_time", "delayed", "unknown"] | None = None
+    travel_assessment_label: str | None = None
 
 
 class TrackResponse(BaseModel):

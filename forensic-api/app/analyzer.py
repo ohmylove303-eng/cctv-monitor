@@ -634,6 +634,8 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
     rng = random.Random(seed)
     shuffled = cameras[:]
     rng.shuffle(shuffled)
+    if any(camera.travelOrder is not None for camera in cameras):
+        shuffled = sorted(shuffled, key=lambda camera: camera.travelOrder if camera.travelOrder is not None else 9999)
     count = min(len(shuffled), max(1, min(settings.track_hit_limit, rng.randint(2, 5))))
     base_time = now_kst()
 
@@ -652,6 +654,10 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
                 plate_candidates=[],
                 color=request.color,
                 vehicle_type=request.vehicle_type,
+                expected_eta_minutes=camera.expectedEtaMinutes,
+                time_window_label=camera.timeWindowLabel,
+                travel_assessment="unknown",
+                travel_assessment_label="판단 보류",
             )
         )
     return sorted(hits, key=lambda hit: hit.timestamp)
@@ -697,6 +703,10 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
                 plate_candidates=analysis.plate_candidates,
                 color=request.color,
                 vehicle_type=request.vehicle_type or analysis.target_vehicle_type,
+                expected_eta_minutes=camera.expectedEtaMinutes,
+                time_window_label=camera.timeWindowLabel,
+                travel_assessment="unknown",
+                travel_assessment_label="판단 보류",
             )
         )
         if len(hits) >= settings.track_hit_limit:

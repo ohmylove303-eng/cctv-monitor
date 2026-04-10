@@ -376,7 +376,21 @@ function normalizeTrackingResult(
             originTime && typeof hit.timestamp === 'string'
                 ? Math.round((new Date(String(hit.timestamp)).getTime() - originTime) / 60000)
                 : undefined;
-        const travelAssessment = assessTravelWindow(expectedEtaMinutes, observedMinutes);
+        const assessedTravel = assessTravelWindow(expectedEtaMinutes, observedMinutes);
+        const backendTravelCode = hit.travel_assessment === 'fast'
+            || hit.travel_assessment === 'on_time'
+            || hit.travel_assessment === 'delayed'
+            || hit.travel_assessment === 'unknown'
+            ? hit.travel_assessment as 'fast' | 'on_time' | 'delayed' | 'unknown'
+            : null;
+        const travelAssessment = observedMinutes === undefined && backendTravelCode
+            ? {
+                code: backendTravelCode,
+                label: typeof hit.travel_assessment_label === 'string'
+                    ? hit.travel_assessment_label
+                    : assessedTravel.label,
+            }
+            : assessedTravel;
 
         return {
             id: String(hit.id ?? `${cctvId || cctvName || 'hit'}-${index}`),
