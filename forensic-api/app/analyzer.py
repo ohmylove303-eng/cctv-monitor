@@ -636,6 +636,14 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
     rng.shuffle(shuffled)
     if any(camera.travelOrder is not None for camera in cameras):
         shuffled = sorted(shuffled, key=lambda camera: camera.travelOrder if camera.travelOrder is not None else 9999)
+    if request.origin_cctv_id:
+        shuffled = sorted(
+            shuffled,
+            key=lambda camera: (
+                0 if camera.id == request.origin_cctv_id else 1,
+                camera.travelOrder if camera.travelOrder is not None else 9999,
+            ),
+        )
     count = min(len(shuffled), max(1, min(settings.track_hit_limit, rng.randint(2, 5))))
     base_time = now_kst()
 
@@ -701,13 +709,23 @@ def build_track_message(hit_count: int, cameras: list[TrackCamera], demo: bool =
 def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse:
     settings = get_settings()
     cameras = request.cctv_list[: settings.track_camera_limit]
+    if request.origin_cctv_id:
+        cameras = sorted(
+            cameras,
+            key=lambda camera: (
+                0 if camera.id == request.origin_cctv_id else 1,
+                camera.travelOrder if camera.travelOrder is not None else 9999,
+            ),
+        )
 
     if settings.forensic_demo_mode:
         hits = build_demo_track_hits(request, tracking_id, cameras, settings)
+        origin_hit = next((hit for hit in hits if hit.cctv_id == request.origin_cctv_id), None) if request.origin_cctv_id else None
         return TrackResponse(
             tracking_id=tracking_id,
             status="completed",
             searched_cameras=len(cameras),
+            origin_timestamp=origin_hit.timestamp if origin_hit else None,
             hits=hits,
             message=build_track_message(len(hits), cameras, demo=True),
         )
@@ -749,11 +767,13 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
         if len(hits) >= settings.track_hit_limit:
             break
     hits = sort_track_hits_by_route(hits)
+    origin_hit = next((hit for hit in hits if hit.cctv_id == request.origin_cctv_id), None) if request.origin_cctv_id else None
 
     return TrackResponse(
         tracking_id=tracking_id,
         status="completed",
         searched_cameras=len(cameras),
+        origin_timestamp=origin_hit.timestamp if origin_hit else None,
         hits=hits,
         message=build_track_message(len(hits), cameras),
     )

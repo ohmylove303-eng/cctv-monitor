@@ -437,6 +437,11 @@ function normalizeTrackingResult(
         tracking_id: String(raw.tracking_id ?? raw.trackingId ?? raw.job_id ?? generateId('tracking')),
         status,
         searched_cameras: Number(raw.searched_cameras ?? raw.camera_count ?? scope.length),
+        origin_timestamp: typeof raw.origin_timestamp === 'string'
+            ? raw.origin_timestamp
+            : typeof raw.originTimestamp === 'string'
+                ? raw.originTimestamp
+                : undefined,
         hits,
         message: typeof raw.message === 'string'
             ? raw.message

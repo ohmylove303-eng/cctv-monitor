@@ -98,5 +98,6 @@ class TrackResponse(BaseModel):
     tracking_id: str
     status: Literal["queued", "processing", "completed", "error"]
     searched_cameras: int
+    origin_timestamp: datetime | None = None
     hits: list[TrackHit] = Field(default_factory=list)
     message: str | None = None

@@ -135,7 +135,14 @@ export function createFallbackAnalyzeResponse(payload: AnalyzeRequestPayload) {
 }
 
 export function createFallbackTrackResponse(payload: TrackRequestPayload) {
-    const cameras = Array.isArray(payload.cctv_list) ? payload.cctv_list : [];
+    const cameras = Array.isArray(payload.cctv_list) ? [...payload.cctv_list] : [];
+    if (payload.origin_cctv_id) {
+        cameras.sort((left, right) => {
+            const leftRank = left.id === payload.origin_cctv_id ? 0 : 1;
+            const rightRank = right.id === payload.origin_cctv_id ? 0 : 1;
+            return leftRank - rightRank || (left.travelOrder ?? 9999) - (right.travelOrder ?? 9999);
+        });
+    }
     const routeContext = payload.route_context ?? {};
     const seed = `${payload.origin_cctv_id || ''}|${payload.plate || ''}|${payload.color || ''}|${payload.vehicle_type || ''}|${cameras.length}`;
     const baseTime = Date.now();
@@ -156,12 +163,18 @@ export function createFallbackTrackResponse(payload: TrackRequestPayload) {
             vehicle_type: payload.vehicle_type || null,
             expected_eta_minutes: camera.expectedEtaMinutes ?? null,
             time_window_label: camera.timeWindowLabel ?? null,
+            travel_order: camera.travelOrder ?? null,
+            is_route_focus: camera.isRouteFocus ?? null,
         }));
+    const originHit = payload.origin_cctv_id
+        ? hits.find((hit) => hit.cctv_id === payload.origin_cctv_id) ?? null
+        : null;
 
     const result = {
         tracking_id: `track-${randomUUID().slice(0, 12)}`,
         status: 'completed',
         searched_cameras: cameras.length,
+        origin_timestamp: originHit?.timestamp ?? null,
         hits,
         message: hits.length
             ? `${hits.length}건의 데모 이동 후보를 생성했습니다.${routeContext.roadLabel ? ` ${routeContext.roadLabel}` : ''}${routeContext.scopeLabel ? ` / ${routeContext.scopeLabel}` : ''} 기준 우선순위를 반영했습니다.`
