@@ -124,11 +124,28 @@ def get_easyocr_reader() -> Any | None:
 
 def get_ocr_runtime_state() -> dict[str, Any]:
     settings = get_settings()
+    engine = settings.ocr_engine.strip().lower()
+    configured = engine == "easyocr" and not settings.forensic_demo_mode
+    attempted = OCR_RUNTIME_STATE["attempted"]
+    ready = OCR_RUNTIME_STATE["ready"]
+    error = OCR_RUNTIME_STATE["error"]
+    status = (
+        "ready"
+        if ready
+        else "lazy_not_initialized"
+        if configured and not attempted
+        else "unavailable"
+        if configured
+        else "disabled"
+    )
     state = {
         "engine": settings.ocr_engine,
-        "attempted": OCR_RUNTIME_STATE["attempted"],
-        "ready": OCR_RUNTIME_STATE["ready"],
-        "error": OCR_RUNTIME_STATE["error"],
+        "configured": configured,
+        "attempted": attempted,
+        "ready": ready,
+        "lazy_load": configured and not attempted,
+        "status": status,
+        "error": error,
     }
     return state
 
@@ -224,6 +241,39 @@ def sample_frames_with_ffmpeg(stream_url: str, frame_limit: int, settings: Setti
         return frames
 
 
+def score_frame_quality(frame: np.ndarray) -> float:
+    try:
+        import cv2
+    except Exception:
+        return 0.0
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+    height, width = gray.shape[:2]
+    center_left = int(width * 0.2)
+    center_right = int(width * 0.8)
+    center_top = int(height * 0.2)
+    center_bottom = int(height * 0.8)
+    center = gray[center_top:center_bottom, center_left:center_right]
+    brightness = float(center.mean()) if center.size else float(gray.mean())
+
+    # Prefer sharper frames with usable exposure; avoid over-weighting very dark or washed-out frames.
+    brightness_penalty = abs(brightness - 138.0) * 0.35
+    return sharpness - brightness_penalty
+
+
+def prioritize_frames(frames: list[np.ndarray], limit: int | None = None) -> list[np.ndarray]:
+    ranked = sorted(
+        frames,
+        key=score_frame_quality,
+        reverse=True,
+    )
+    if limit is None:
+        return ranked
+    return ranked[:limit]
+
+
 def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_per_frame: int = 2) -> list[np.ndarray]:
     height, width = frame.shape[:2]
     ranked_boxes = sorted(
@@ -278,7 +328,8 @@ def run_yolo_vehicle_scan(frames: list[np.ndarray], settings: Settings) -> tuple
     detections = 0
     labels: list[str] = []
     ocr_inputs: list[np.ndarray] = []
-    for frame in frames:
+    prioritized_frames = prioritize_frames(frames, min(len(frames), 4))
+    for frame in prioritized_frames:
         results = model.predict(frame, verbose=False, conf=settings.yolo_confidence)
         frame_boxes: list[list[float]] = []
         for result in results:
@@ -361,11 +412,28 @@ def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         variants.append(gray)
 
-        enlarged = cv2.resize(gray, None, fx=1.6, fy=1.6, interpolation=cv2.INTER_CUBIC)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        clahe_gray = clahe.apply(gray)
+        variants.append(clahe_gray)
+
+        enlarged = cv2.resize(gray, None, fx=1.8, fy=1.8, interpolation=cv2.INTER_CUBIC)
         variants.append(enlarged)
+
+        enlarged_clahe = cv2.resize(clahe_gray, None, fx=1.8, fy=1.8, interpolation=cv2.INTER_CUBIC)
+        variants.append(enlarged_clahe)
 
         _, binary = cv2.threshold(enlarged, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         variants.append(binary)
+        adaptive = cv2.adaptiveThreshold(
+            enlarged_clahe,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            7,
+        )
+        variants.append(adaptive)
+        variants.append(cv2.bitwise_not(adaptive))
     except Exception:
         pass
 
@@ -479,6 +547,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
 
     frame_limit = settings.analyze_frame_limit if analysis_mode == "verify" else max(1, min(2, settings.analyze_frame_limit))
     frames = sample_frames(str(request.hls_url), frame_limit)
+    frames = prioritize_frames(frames, frame_limit)
     vehicle_count, labels, ocr_inputs = run_yolo_vehicle_scan(frames, settings)
     should_run_ocr = analysis_mode == "verify" and len(frames) > 0 and vehicle_count > 0
     plate_candidates, ocr_status, ocr_engine = (

@@ -28,6 +28,8 @@ interface Props {
         bundleCount: number;
         segmentCount: number;
         focusCount: number;
+        highIdentificationCount: number;
+        mediumIdentificationCount: number;
         directionLabel: string;
         speedKph: number;
         directionSourceLabel: string;
@@ -74,6 +76,19 @@ type BundleAnalysisSummary = {
     suggestedVehicleType?: string;
 };
 
+type CameraQualityTelemetry = {
+    attempts: number;
+    scanAttempts: number;
+    verifyAttempts: number;
+    vehicleHits: number;
+    plateHits: number;
+    bestConfidence: number;
+    lastConfidence: number;
+    lastVehicleCount: number;
+    lastStage: 'scan' | 'verify';
+    updatedAt: string;
+};
+
 const DETECTION_STEPS = [
     { label: 'ITS 실시간 HLS 스트림 프레임 확보 중…', pct: 15 },
     { label: 'YOLO 차량 객체 검출 수행 중…', pct: 40 },
@@ -98,9 +113,141 @@ const BUNDLE_SCOPE_LIMITS: Record<'focus' | 'bundle' | 'network', number> = {
 
 const VEHICLE_TYPES = ['미지정', '세단', 'SUV', '트럭', '버스', '오토바이', '밴', '택시'];
 const VEHICLE_COLORS = ['미지정', '흰색', '검정', '은색', '회색', '파랑', '빨강', '노랑', '초록', '갈색'];
+const CAMERA_QUALITY_STORAGE_KEY = 'cctv-monitor.identification-quality.v1';
+const MAX_CAMERA_QUALITY_ITEMS = 700;
 
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getIdentificationRank(camera: Pick<ForensicTrackCamera, 'identificationGrade'>) {
+    if (camera.identificationGrade === 'high') return 2;
+    if (camera.identificationGrade === 'medium') return 1;
+    return 0;
+}
+
+function normalizeCameraQualityTelemetry(value: unknown): CameraQualityTelemetry | null {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const entry = value as Record<string, unknown>;
+    const attempts = Math.max(0, Number(entry.attempts ?? 0));
+    if (!Number.isFinite(attempts) || attempts <= 0) {
+        return null;
+    }
+
+    const lastStage = entry.lastStage === 'verify' ? 'verify' : 'scan';
+    return {
+        attempts,
+        scanAttempts: Math.max(0, Number(entry.scanAttempts ?? 0)),
+        verifyAttempts: Math.max(0, Number(entry.verifyAttempts ?? 0)),
+        vehicleHits: Math.max(0, Number(entry.vehicleHits ?? 0)),
+        plateHits: Math.max(0, Number(entry.plateHits ?? 0)),
+        bestConfidence: Math.max(0, Math.min(100, Number(entry.bestConfidence ?? 0))),
+        lastConfidence: Math.max(0, Math.min(100, Number(entry.lastConfidence ?? 0))),
+        lastVehicleCount: Math.max(0, Number(entry.lastVehicleCount ?? 0)),
+        lastStage,
+        updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date().toISOString(),
+    };
+}
+
+function loadCameraQualityTelemetry(): Record<string, CameraQualityTelemetry> {
+    if (typeof window === 'undefined') {
+        return {};
+    }
+
+    try {
+        const raw = window.localStorage.getItem(CAMERA_QUALITY_STORAGE_KEY);
+        if (!raw) {
+            return {};
+        }
+
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') {
+            return {};
+        }
+
+        const entries = Object.entries(parsed as Record<string, unknown>)
+            .map(([id, value]) => [id, normalizeCameraQualityTelemetry(value)] as const)
+            .filter((entry): entry is readonly [string, CameraQualityTelemetry] => Boolean(entry[1]))
+            .sort((left, right) => new Date(right[1].updatedAt).getTime() - new Date(left[1].updatedAt).getTime())
+            .slice(0, MAX_CAMERA_QUALITY_ITEMS);
+
+        return Object.fromEntries(entries);
+    } catch {
+        return {};
+    }
+}
+
+function persistCameraQualityTelemetry(value: Record<string, CameraQualityTelemetry>) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const limited = Object.fromEntries(
+        Object.entries(value)
+            .sort((left, right) => new Date(right[1].updatedAt).getTime() - new Date(left[1].updatedAt).getTime())
+            .slice(0, MAX_CAMERA_QUALITY_ITEMS)
+    );
+
+    try {
+        window.localStorage.setItem(CAMERA_QUALITY_STORAGE_KEY, JSON.stringify(limited));
+    } catch {
+        // 분석 흐름을 막지 않기 위해 저장 실패는 조용히 무시한다.
+    }
+}
+
+function getCameraQualityScore(entry?: CameraQualityTelemetry) {
+    if (!entry || entry.attempts <= 0) {
+        return 0;
+    }
+
+    const vehicleHitRate = Math.min(1, entry.vehicleHits / entry.attempts);
+    const plateHitRate = Math.min(1, entry.plateHits / entry.attempts);
+    const confidenceScore = Math.min(1, entry.bestConfidence / 100);
+    const recencyDays = Math.max(0, (Date.now() - new Date(entry.updatedAt).getTime()) / 86400000);
+    const recencyScore = recencyDays <= 1 ? 0.4 : recencyDays <= 7 ? 0.2 : 0;
+
+    return (vehicleHitRate * 3) + (plateHitRate * 2) + confidenceScore + recencyScore;
+}
+
+function updateCameraQualityTelemetry(
+    previous: Record<string, CameraQualityTelemetry>,
+    cameraId: string,
+    result: ForensicResult,
+    stage: 'scan' | 'verify',
+) {
+    const current = previous[cameraId] ?? {
+        attempts: 0,
+        scanAttempts: 0,
+        verifyAttempts: 0,
+        vehicleHits: 0,
+        plateHits: 0,
+        bestConfidence: 0,
+        lastConfidence: 0,
+        lastVehicleCount: 0,
+        lastStage: stage,
+        updatedAt: new Date().toISOString(),
+    };
+    const vehicleCount = Math.max(0, result.vehicle_count ?? 0);
+    const hasOcrPlate = result.ocr_status === 'ocr_active' && (result.plate_candidates?.length ?? 0) > 0;
+
+    return {
+        ...previous,
+        [cameraId]: {
+            attempts: current.attempts + 1,
+            scanAttempts: current.scanAttempts + (stage === 'scan' ? 1 : 0),
+            verifyAttempts: current.verifyAttempts + (stage === 'verify' ? 1 : 0),
+            vehicleHits: current.vehicleHits + (vehicleCount > 0 ? 1 : 0),
+            plateHits: current.plateHits + (hasOcrPlate ? 1 : 0),
+            bestConfidence: Math.max(current.bestConfidence, result.confidence),
+            lastConfidence: result.confidence,
+            lastVehicleCount: vehicleCount,
+            lastStage: stage,
+            updatedAt: new Date().toISOString(),
+        },
+    };
 }
 
 function generateId(prefix: string) {
@@ -349,6 +496,9 @@ export default function ForensicModal({
     const [targetPlate, setTargetPlate] = useState('');
     const [targetColor, setTargetColor] = useState('미지정');
     const [targetVehicleType, setTargetVehicleType] = useState('미지정');
+    const [cameraQualityTelemetry, setCameraQualityTelemetry] = useState<Record<string, CameraQualityTelemetry>>(
+        () => loadCameraQualityTelemetry()
+    );
     const runIdRef = useRef(0);
 
     const isCurrentCameraSupported = supportsVehicleForensic(cctv);
@@ -360,8 +510,17 @@ export default function ForensicModal({
         const limit = routeContext
             ? BUNDLE_SCOPE_LIMITS[routeContext.scopeMode]
             : BUNDLE_SCOPE_LIMITS.focus;
-        return trackScope.slice(0, limit);
-    }, [routeContext, trackScope]);
+        return [...trackScope]
+            .sort((left, right) =>
+                getIdentificationRank(right) - getIdentificationRank(left)
+                || (getCameraQualityScore(cameraQualityTelemetry[right.id]) - getCameraQualityScore(cameraQualityTelemetry[left.id]))
+                || (Number(right.isRouteFocus) - Number(left.isRouteFocus))
+                || ((left.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER) - (right.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER))
+                || ((left.travelOrder ?? Number.MAX_SAFE_INTEGER) - (right.travelOrder ?? Number.MAX_SAFE_INTEGER))
+            )
+            .slice(0, limit);
+    }, [cameraQualityTelemetry, routeContext, trackScope]);
+    const qualityBoostedCount = bundleScope.filter((camera) => getCameraQualityScore(cameraQualityTelemetry[camera.id]) > 0).length;
     const currentStreamUrl = cctv.hlsUrl || cctv.streamUrl || '';
     const effectiveTargetPlate = targetPlate.trim()
         || analysisResult?.target_plate
@@ -377,6 +536,23 @@ export default function ForensicModal({
         : analysisResult?.target_vehicle_type
             || bundleAnalysisSummary?.suggestedVehicleType
             || '';
+    const hasTargetHints = Boolean(
+        targetPlate.trim()
+        || targetColor !== '미지정'
+        || targetVehicleType !== '미지정'
+    );
+
+    const recordCameraQualityResult = (
+        cameraId: string,
+        result: ForensicResult,
+        stage: 'scan' | 'verify',
+    ) => {
+        setCameraQualityTelemetry((previous) => {
+            const next = updateCameraQualityTelemetry(previous, cameraId, result, stage);
+            persistCameraQualityTelemetry(next);
+            return next;
+        });
+    };
 
     const runStepSequence = async (steps: typeof DETECTION_STEPS, runId: number) => {
         for (let index = 0; index < steps.length; index += 1) {
@@ -413,7 +589,54 @@ export default function ForensicModal({
         const runId = runIdRef.current;
 
         try {
-            const [_, rawResult] = await Promise.all([
+            const [_, rawScanResult] = await Promise.all([
+                runStepSequence(DETECTION_STEPS, runId),
+                analyzeCctv(
+                    cctv.id,
+                    currentStreamUrl,
+                    undefined,
+                    undefined,
+                    undefined,
+                    routeContext || undefined,
+                    'scan',
+                ),
+            ]);
+
+            const normalizedScanResult = normalizeAnalysisResult(rawScanResult, cctv);
+            recordCameraQualityResult(cctv.id, normalizedScanResult, 'scan');
+            setAnalysisResult(normalizedScanResult);
+            setPhase('analyzed');
+            setProgress(100);
+        } catch (error) {
+            console.error(error);
+            setPhase('error');
+            setErrorMessage(error instanceof Error ? error.message : '차량 분석 중 오류가 발생했습니다.');
+        }
+    };
+
+    const startVerifyAnalysis = async () => {
+        setErrorMessage(null);
+
+        if (!backendEnabled) {
+            setPhase('error');
+            setErrorMessage(backendMessage || '차량 분석 서버가 아직 연결되지 않았습니다.');
+            return;
+        }
+
+        if (!isCurrentCameraSupported) {
+            setPhase('error');
+            setErrorMessage('현재 카메라는 ITS 실시간 차량 분석 대상이 아닙니다. National-ITS 또는 실시간 ITS 소스만 분석할 수 있습니다.');
+            return;
+        }
+
+        setPhase('analyzing');
+        setStepIdx(0);
+        setProgress(0);
+        runIdRef.current += 1;
+        const runId = runIdRef.current;
+
+        try {
+            const [_, refinedRawResult] = await Promise.all([
                 runStepSequence(DETECTION_STEPS, runId),
                 analyzeCctv(
                     cctv.id,
@@ -426,13 +649,15 @@ export default function ForensicModal({
                 ),
             ]);
 
-            setAnalysisResult(normalizeAnalysisResult(rawResult, cctv));
+            const normalizedRefinedResult = normalizeAnalysisResult(refinedRawResult, cctv);
+            recordCameraQualityResult(cctv.id, normalizedRefinedResult, 'verify');
+            setAnalysisResult(normalizedRefinedResult);
             setPhase('analyzed');
             setProgress(100);
         } catch (error) {
             console.error(error);
             setPhase('error');
-            setErrorMessage(error instanceof Error ? error.message : '차량 분석 중 오류가 발생했습니다.');
+            setErrorMessage(error instanceof Error ? error.message : '2차 정밀 확인 중 오류가 발생했습니다.');
         }
     };
 
@@ -482,8 +707,11 @@ export default function ForensicModal({
                     'scan',
                 );
 
+                const normalizedResult = normalizeAnalysisResult(rawResult, cctv);
+                recordCameraQualityResult(camera.id, normalizedResult, 'scan');
+
                 results.push({
-                    ...normalizeAnalysisResult(rawResult, cctv),
+                    ...normalizedResult,
                     cctv_id: camera.id,
                     cctvMeta: camera,
                     analysisStage: 'scan',
@@ -495,7 +723,8 @@ export default function ForensicModal({
             const verifyCandidates = [...results]
                 .filter((item) => (item.vehicle_count ?? 0) > 0)
                 .sort((left, right) =>
-                    ((right.cctvMeta.isRouteFocus ? 1 : 0) - (left.cctvMeta.isRouteFocus ? 1 : 0))
+                    (getIdentificationRank(right.cctvMeta) - getIdentificationRank(left.cctvMeta))
+                    || ((right.cctvMeta.isRouteFocus ? 1 : 0) - (left.cctvMeta.isRouteFocus ? 1 : 0))
                     || ((right.vehicle_count ?? 0) - (left.vehicle_count ?? 0))
                     || (right.confidence - left.confidence)
                 )
@@ -516,8 +745,11 @@ export default function ForensicModal({
                     'verify',
                 );
 
+                const normalizedRefinedResult = normalizeAnalysisResult(refinedRawResult, cctv);
+                recordCameraQualityResult(candidate.cctvMeta.id, normalizedRefinedResult, 'verify');
+
                 const refined = {
-                    ...normalizeAnalysisResult(refinedRawResult, cctv),
+                    ...normalizedRefinedResult,
                     cctv_id: candidate.cctvMeta.id,
                     cctvMeta: candidate.cctvMeta,
                     analysisStage: 'verify' as const,
@@ -750,10 +982,10 @@ export default function ForensicModal({
                             color: '#bae6fd',
                             lineHeight: 1.7,
                         }}
-                    >
-                        ITS 실시간 카메라에서만 YOLO 차량 검출과 추적을 수행합니다.
-                        로컬 교통 CCTV는 지도 기준점용이므로 분석 대상에서 제외됩니다.
-                        현재 운영 버전은 차량 검출 중심이며, 번호판 OCR은 아직 실전 엔진이 연결되지 않았습니다.
+                        >
+                            ITS 실시간 카메라에서만 YOLO 차량 검출과 추적을 수행합니다.
+                            로컬 교통 CCTV는 지도 기준점용이므로 분석 대상에서 제외됩니다.
+                            단일 CCTV 빠른 확인은 항상 1차 스캔만 수행합니다. 번호판·색상·차종 단서로 더 좁혀야 할 때만 아래의 2차 정밀 확인을 별도로 실행합니다.
                     </div>
 
                     {backendEnabled && backendProvider === 'fallback' && (
@@ -788,7 +1020,7 @@ export default function ForensicModal({
                             }}
                         >
                             현재 추적은 {routeFocusSummary.originLabel}{routeFocusSummary.destinationLabel ? ` → ${routeFocusSummary.destinationLabel}` : ''} / {routeFocusSummary.roadLabel} 기준으로 동작합니다.
-                            {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 구간 {routeFocusSummary.segmentCount}대 중 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
+                            {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 구간 {routeFocusSummary.segmentCount}대 중 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 식별 우선 {routeFocusSummary.highIdentificationCount}대, 확인 우선 {routeFocusSummary.mediumIdentificationCount}대, 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
                         </div>
                     )}
 
@@ -827,6 +1059,43 @@ export default function ForensicModal({
                         >
                             이번 순차 분석은 현재 범위에서 상위 {bundleScope.length}대만 실행합니다.
                             먼저 노선 그룹에서 차량번호·색상·차종 단서를 모으고, 그 결과를 같은 도로축 추적에 재사용합니다.
+                            {qualityBoostedCount > 0 ? ` 최근 분석 성공 이력 ${qualityBoostedCount}대도 같은 등급 안에서 보조 순위로 반영됩니다.` : ''}
+                        </div>
+                    )}
+
+                    {routeContext && (phase === 'idle' || phase === 'error') && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(245,158,11,0.08)',
+                                border: '1px solid rgba(245,158,11,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#fde68a',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            현재 운영 환경에서는 <strong style={{ color: '#fef3c7' }}>노선 그룹 순차 분석</strong>이 기본 실전 경로입니다.
+                            단일 CCTV 분석은 빠른 보조 확인용으로 두고, 실제 추적은 같은 도로축 상위 CCTV 묶음을 먼저 훑는 흐름을 권장합니다.
+                        </div>
+                    )}
+
+                    {(phase === 'analyzed' || phase === 'tracked') && hasTargetHints && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(245,158,11,0.08)',
+                                border: '1px solid rgba(245,158,11,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#fde68a',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            <strong style={{ color: '#fef3c7' }}>2차 정밀 확인</strong>은 현재 보조 검증 경로입니다.
+                            Render 환경 특성상 실전 YOLO 대신 데모 fallback으로 처리될 수 있으므로, 우선 판단은 1차 스캔 또는 노선 그룹 순차 분석 결과를 기준으로 보는 것을 권장합니다.
                         </div>
                     )}
 
@@ -1311,14 +1580,14 @@ export default function ForensicModal({
 
                     {(phase === 'idle' || phase === 'error') && (
                         <>
-                            <button className="btn-neon" onClick={startAnalysis}>
-                                단일 CCTV 분석
-                            </button>
                             {routeContext && (
                                 <button className="btn-forensic" onClick={startBundleAnalysis}>
-                                    노선 그룹 순차 분석
+                                    노선 그룹 순차 분석 시작
                                 </button>
                             )}
+                            <button className="btn-neon" onClick={startAnalysis}>
+                                {routeContext ? '단일 CCTV 빠른 확인' : '단일 CCTV 분석'}
+                            </button>
                         </>
                     )}
 
@@ -1330,6 +1599,11 @@ export default function ForensicModal({
                                     onClick={() => exportEvidence(analysisResult, `vehicle_analysis_${analysisResult.job_id.slice(0, 8)}.json`)}
                                 >
                                     분석 결과 저장
+                                </button>
+                            )}
+                            {analysisResult && hasTargetHints && (analysisResult.vehicle_count ?? 0) > 0 && (
+                                <button className="btn-neon" onClick={startVerifyAnalysis}>
+                                    2차 정밀 확인 (보조)
                                 </button>
                             )}
                             {bundleAnalysisSummary && (

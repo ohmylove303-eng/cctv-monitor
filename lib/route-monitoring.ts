@@ -21,6 +21,9 @@ export type RouteMonitoringCandidate = {
     travelOrder: number;
     isForward: boolean;
     focusScore: number;
+    identificationScore: number;
+    identificationGrade: 'high' | 'medium' | 'low';
+    identificationReason: string;
     etaMinutes: number;
     timeWindowLabel: string;
 };
@@ -54,6 +57,8 @@ export type RouteMonitoringPlan = {
     bundleCount: number;
     segmentCount: number;
     focusCount: number;
+    highIdentificationCount: number;
+    mediumIdentificationCount: number;
     direction: RouteDirection;
     resolvedDirection: 'forward' | 'reverse';
     directionSource: 'manual' | 'token_hint' | 'density' | 'destination';
@@ -124,6 +129,15 @@ const ROAD_DIRECTION_HINTS: Partial<Record<RoadPreset, { forward: string[]; reve
     },
 };
 
+const HIGH_IDENTIFICATION_TOKENS = [
+    '교차로', '사거리', '오거리', '삼거리', 'ic', 'jc', 'tg', '톨게이트',
+    '영업소', '하이패스', '램프', '진입', '진출', '입구', '출구', '분기점',
+];
+
+const MEDIUM_IDENTIFICATION_TOKENS = [
+    '교', '대교', '고가', '지하차도', '시점', '종점', '입구', '출구',
+];
+
 function normalizeText(value: string) {
     return value
         .toLowerCase()
@@ -137,6 +151,100 @@ function getEtaWindowLabel(etaMinutes: number) {
     if (etaMinutes <= 7) return '단기';
     if (etaMinutes <= 15) return '중기';
     return '후속';
+}
+
+function assessIdentificationPriority(
+    item: CctvItem,
+    routeDistanceKm: number,
+    lateralOffsetMeters: number,
+    etaMinutes: number,
+): {
+    score: number;
+    grade: RouteMonitoringCandidate['identificationGrade'];
+    reason: string;
+} {
+    const rawText = `${item.name} ${item.address}`.toLowerCase();
+    const normalized = normalizeText(`${item.name} ${item.address}`);
+    const reasons: string[] = [];
+    let score = 40;
+
+    const highToken = HIGH_IDENTIFICATION_TOKENS.find((token) => normalized.includes(token));
+    if (highToken) {
+        score += 28;
+        reasons.push(`근접 식별 토큰:${highToken}`);
+    }
+
+    const mediumToken = MEDIUM_IDENTIFICATION_TOKENS.find((token) => normalized.includes(token));
+    if (mediumToken && mediumToken !== highToken) {
+        score += 10;
+        reasons.push(`구조물 토큰:${mediumToken}`);
+    }
+
+    if (/\d+(?:\.\d+)?k\b/i.test(rawText)) {
+        score -= 24;
+        reasons.push('거리표기 본선 구간');
+    }
+
+    if (rawText.includes('상부') || rawText.includes('하부')) {
+        score -= 8;
+        reasons.push('원거리 시점 가능');
+    }
+
+    if (item.source === 'incheon-utic' || item.source === 'gimpo-its-cross') {
+        score += 14;
+        reasons.push('교차로형 ITS');
+    } else if (item.source === 'gimpo-its-main') {
+        score += 4;
+        reasons.push('주요축 ITS');
+    }
+
+    if (lateralOffsetMeters <= 120) {
+        score += 18;
+        reasons.push('축 정렬 우수');
+    } else if (lateralOffsetMeters <= 250) {
+        score += 10;
+        reasons.push('축 정렬 양호');
+    } else if (lateralOffsetMeters > 500) {
+        score -= 10;
+        reasons.push('측면 오차 큼');
+    }
+
+    if (routeDistanceKm <= 3) {
+        score += 14;
+        reasons.push('근거리 구간');
+    } else if (routeDistanceKm <= 7) {
+        score += 8;
+        reasons.push('중거리 구간');
+    } else if (routeDistanceKm >= 12) {
+        score -= 6;
+        reasons.push('원거리 구간');
+    }
+
+    if (etaMinutes <= 5) {
+        score += 8;
+    } else if (etaMinutes <= 10) {
+        score += 4;
+    } else if (etaMinutes >= 18) {
+        score -= 4;
+    }
+
+    const clamped = Math.max(0, Math.min(100, score));
+    const grade: RouteMonitoringCandidate['identificationGrade'] =
+        clamped >= 78 ? 'high' : clamped >= 58 ? 'medium' : 'low';
+
+    if (grade === 'high') {
+        reasons.unshift('번호판/색상 식별 우선');
+    } else if (grade === 'medium') {
+        reasons.unshift('차종/색상 확인 우선');
+    } else {
+        reasons.unshift('흐름 감시 우선');
+    }
+
+    return {
+        score: clamped,
+        grade,
+        reason: reasons.slice(0, 3).join(' · '),
+    };
 }
 
 function getRouteScopeLabel(scopeMode: RouteScopeMode) {
@@ -500,7 +608,11 @@ export function buildRouteMonitoringPlan(
             const alignmentScore = Math.max(0, 1 - candidate.lateralOffsetMeters / 700);
             const rangeScore = Math.max(0, 1 - candidate.routeDistanceKm / 15);
             const directionScore = isForward ? 0.4 : 0;
-            const focusScore = alignmentScore * 140 + rangeScore * 80 + directionScore * 100;
+            const item = routePoolById.get(candidate.id);
+            const identification = item
+                ? assessIdentificationPriority(item, candidate.routeDistanceKm, candidate.lateralOffsetMeters, candidate.etaMinutes)
+                : { score: 0, grade: 'low' as const, reason: '흐름 감시 우선' };
+            const focusScore = alignmentScore * 140 + rangeScore * 80 + directionScore * 100 + identification.score * 2;
 
             return {
                 id: candidate.id,
@@ -514,12 +626,16 @@ export function buildRouteMonitoringPlan(
                 travelOrder: 0,
                 isForward,
                 focusScore,
+                identificationScore: identification.score,
+                identificationGrade: identification.grade,
+                identificationReason: identification.reason,
                 etaMinutes: candidate.etaMinutes,
                 timeWindowLabel: getEtaWindowLabel(candidate.etaMinutes),
             } satisfies RouteMonitoringCandidate;
         })
         .sort((left, right) =>
             Number(right.isForward) - Number(left.isForward)
+            || right.identificationScore - left.identificationScore
             || left.lateralOffsetMeters - right.lateralOffsetMeters
             || left.routeDistanceKm - right.routeDistanceKm
             || left.distanceKm - right.distanceKm
@@ -545,6 +661,8 @@ export function buildRouteMonitoringPlan(
     const followupIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '후속')
         .map((candidate) => candidate.id);
+    const highIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'high').length;
+    const mediumIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'medium').length;
     const prioritizedIds = [startItem.id, ...prioritizedFocus.map((candidate) => candidate.id), ...candidates.map((candidate) => candidate.id)]
         .filter((id, index, array) => array.indexOf(id) === index);
 
@@ -564,6 +682,8 @@ export function buildRouteMonitoringPlan(
         bundleCount: routeItems.length + 1,
         segmentCount: candidates.length + 1,
         focusCount: prioritizedFocus.length,
+        highIdentificationCount,
+        mediumIdentificationCount,
         direction: options.direction,
         resolvedDirection,
         directionSource,
@@ -599,10 +719,18 @@ export function buildRouteScopedTrackScope(
 ) {
     const candidateMap = new Map(plan.candidates.map((candidate) => [candidate.id, candidate]));
     const immediateAndShort = [...plan.immediateIds, ...plan.shortIds];
+    const highIdentificationIds = plan.candidates
+        .filter((candidate) => candidate.identificationGrade === 'high')
+        .map((candidate) => candidate.id);
+    const mediumIdentificationIds = plan.candidates
+        .filter((candidate) => candidate.identificationGrade === 'medium')
+        .map((candidate) => candidate.id);
     const focusScopeIds = [
         plan.originId,
         ...immediateAndShort,
+        ...highIdentificationIds,
         ...plan.mediumIds.slice(0, Math.max(0, 8 - immediateAndShort.length)),
+        ...mediumIdentificationIds.slice(0, 4),
         ...plan.focusIds,
     ].filter((id, index, array) => array.indexOf(id) === index);
 
@@ -626,6 +754,9 @@ export function buildRouteScopedTrackScope(
             timeWindowLabel: candidate?.timeWindowLabel,
             travelOrder: candidate?.travelOrder,
             isRouteFocus: candidate ? plan.focusIds.includes(candidate.id) : false,
+            identificationScore: candidate?.identificationScore,
+            identificationGrade: candidate?.identificationGrade,
+            identificationReason: candidate?.identificationReason,
         };
     });
 }

@@ -196,6 +196,8 @@ export async function GET(request: Request) {
                 configured: forensicProbe.enabled,
                 reachable: forensicProbe.reachable,
                 httpStatus: forensicProbe.httpStatus,
+                mode: forensicProbe.mode,
+                ocr: forensicProbe.ocr,
                 message: forensicProbe.message,
             },
         },

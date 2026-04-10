@@ -18,6 +18,20 @@ import { hasVerifiedCoordinate } from '@/lib/coordinate-quality';
 import { dedupeOperationalDisplayCctv } from '@/lib/display-cctv';
 import { buildForensicRouteContext, buildRouteMonitoringPlan, buildRouteQuerySuggestions, buildRouteScopedTrackScope } from '@/lib/route-monitoring';
 
+type SavedRouteScenario = {
+    id: string;
+    name: string;
+    selectedCctvId: string | null;
+    roadPreset: RoadPreset;
+    routeDirection: RouteDirection;
+    routeSpeedKph: number;
+    routeScopeMode: RouteScopeMode;
+    routeStartQuery: string;
+    routeDestinationQuery: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
 type LiveTrafficRecommendation = {
     id: string;
     name: string;
@@ -26,6 +40,8 @@ type LiveTrafficRecommendation = {
     source?: string;
     distanceKm: number;
 };
+
+const ROUTE_SCENARIO_STORAGE_KEY = 'cctv-monitor.route-scenarios.v1';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
     const toRad = (value: number) => (value * Math.PI) / 180;
@@ -94,6 +110,7 @@ function summarizeRouteSuggestionPreview<T extends { id: string }>(
 
 export default function DashboardPage() {
     const mapRef = useRef<CctvMapHandle>(null);
+    const routeScenarioHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ─── 데이터 상태 (빈 배열로 시작, API에서 전적으로 구성) ──────────────────────────────────
     const [allCctv, setAllCctv] = useState<CctvItem[]>([]);
@@ -117,6 +134,9 @@ export default function DashboardPage() {
     const [routeScopeMode, setRouteScopeMode] = useState<RouteScopeMode>('focus');
     const [routeStartQuery, setRouteStartQuery] = useState('');
     const [routeDestinationQuery, setRouteDestinationQuery] = useState('');
+    const [routePreviewPlan, setRoutePreviewPlan] = useState<ReturnType<typeof buildRouteMonitoringPlan> | null>(null);
+    const [routeScenarioName, setRouteScenarioName] = useState('');
+    const [savedRouteScenarios, setSavedRouteScenarios] = useState<SavedRouteScenario[]>([]);
     const [showMapOnlyTraffic, setShowMapOnlyTraffic] = useState(false);
 
     // ─── 위성 옵션 (S-Loop OS vFinal) ──────────────────────────────────────────
@@ -197,6 +217,46 @@ export default function DashboardPage() {
 
         return () => {
             mounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        try {
+            const raw = window.localStorage.getItem(ROUTE_SCENARIO_STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return;
+            const normalized = parsed.filter((item): item is SavedRouteScenario => {
+                return typeof item?.id === 'string'
+                    && typeof item?.name === 'string'
+                    && typeof item?.roadPreset === 'string'
+                    && typeof item?.routeDirection === 'string'
+                    && typeof item?.routeSpeedKph === 'number'
+                    && typeof item?.routeScopeMode === 'string'
+                    && typeof item?.routeStartQuery === 'string'
+                    && typeof item?.routeDestinationQuery === 'string';
+            });
+            setSavedRouteScenarios(
+                normalized.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+            );
+        } catch {
+            // Ignore broken local scenario storage and continue with empty list.
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(ROUTE_SCENARIO_STORAGE_KEY, JSON.stringify(savedRouteScenarios));
+        } catch {
+            // Ignore quota/storage issues; scenarios remain in memory for the session.
+        }
+    }, [savedRouteScenarios]);
+
+    useEffect(() => {
+        return () => {
+            if (routeScenarioHighlightTimerRef.current) {
+                clearTimeout(routeScenarioHighlightTimerRef.current);
+            }
         };
     }, []);
 
@@ -362,6 +422,15 @@ export default function DashboardPage() {
         })
         , [displayCctv, itsRoadOnly, regionFilter, roadPreset, showMapOnlyTraffic, visible]);
 
+    const roadOverlayItems = useMemo(() =>
+        displayCctv.filter((item) =>
+            item.type === 'traffic'
+            && visible.traffic
+            && regionFilter[item.region]
+            && hasLiveTrafficStream(item)
+        )
+        , [displayCctv, regionFilter, visible.traffic]);
+
     useEffect(() => {
         if ((roadPreset === 'all' && !itsRoadOnly) || visibleMapItems.length === 0) {
             return;
@@ -386,6 +455,132 @@ export default function DashboardPage() {
         if (next !== 'all') {
             setItsRoadOnly(false);
         }
+        setRoutePreviewPlan(null);
+    };
+
+    const clearRoutePreview = () => {
+        setRoutePreviewPlan(null);
+    };
+
+    useEffect(() => {
+        if (roadPreset === 'all') {
+            setRouteScenarioName('');
+            return;
+        }
+
+        const defaultName = routeMonitoringPlan
+            ? `${routeMonitoringPlan.roadLabel} · ${routeMonitoringPlan.originLabel}${routeMonitoringPlan.destinationLabel ? ` → ${routeMonitoringPlan.destinationLabel}` : ''}`
+            : routeStartQuery.trim()
+                ? `${roadPreset} · ${routeStartQuery.trim()}${routeDestinationQuery.trim() ? ` → ${routeDestinationQuery.trim()}` : ''}`
+                : '';
+
+        setRouteScenarioName((current) => current.trim() ? current : defaultName);
+    }, [roadPreset, routeDestinationQuery, routeMonitoringPlan, routeStartQuery]);
+
+    const previewRouteStartSuggestion = (name: string) => {
+        setRoutePreviewPlan(
+            buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
+                direction: routeDirection,
+                speedKph: routeSpeedKph,
+                startQuery: name,
+                destinationQuery: routeDestinationQuery,
+            })
+        );
+    };
+
+    const saveRouteScenario = () => {
+        if (!routeMonitoringPlan || roadPreset === 'all') {
+            return;
+        }
+
+        const now = new Date().toISOString();
+        const normalizedName = routeScenarioName.trim() || `${routeMonitoringPlan.roadLabel} · ${routeMonitoringPlan.originLabel}`;
+        const existing = savedRouteScenarios.find((scenario) => scenario.name === normalizedName);
+
+        const nextScenario: SavedRouteScenario = {
+            id: existing?.id ?? `route-scenario-${Date.now()}`,
+            name: normalizedName,
+            selectedCctvId: selectedCctv?.id ?? null,
+            roadPreset,
+            routeDirection,
+            routeSpeedKph,
+            routeScopeMode,
+            routeStartQuery,
+            routeDestinationQuery,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+        };
+
+        setSavedRouteScenarios((current) =>
+            [nextScenario, ...current.filter((scenario) => scenario.id !== nextScenario.id)]
+                .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+                .slice(0, 12)
+        );
+    };
+
+    const loadRouteScenario = (scenario: {
+        id: string;
+        name: string;
+        selectedCctvId?: string | null;
+        roadPreset: RoadPreset;
+        routeDirection: RouteDirection;
+        routeSpeedKph: number;
+        routeScopeMode: RouteScopeMode;
+        routeStartQuery: string;
+        routeDestinationQuery: string;
+        updatedAt: string;
+    }) => {
+        setRoadPreset(scenario.roadPreset);
+        setItsRoadOnly(false);
+        setRouteDirection(scenario.routeDirection);
+        setRouteSpeedKph(scenario.routeSpeedKph);
+        setRouteScopeMode(scenario.routeScopeMode);
+        setRouteStartQuery(scenario.routeStartQuery);
+        setRouteDestinationQuery(scenario.routeDestinationQuery);
+        setRouteScenarioName(scenario.name);
+        setRoutePreviewPlan(null);
+        if (scenario.selectedCctvId && displayCctv.some((item) => item.id === scenario.selectedCctvId)) {
+            setSelectedId(scenario.selectedCctvId);
+        }
+
+        const scenarioOrigin = scenario.selectedCctvId
+            ? displayCctv.find((item) => item.id === scenario.selectedCctvId) ?? selectedCctv
+            : selectedCctv;
+        const previewPlan = buildRouteMonitoringPlan(scenarioOrigin, displayCctv, scenario.roadPreset, {
+            direction: scenario.routeDirection,
+            speedKph: scenario.routeSpeedKph,
+            startQuery: scenario.routeStartQuery,
+            destinationQuery: scenario.routeDestinationQuery,
+        });
+        setRoutePreviewPlan(previewPlan);
+
+        if (previewPlan) {
+            const segmentItems = displayCctv.filter((item) => previewPlan.prioritizedIds.includes(item.id));
+            mapRef.current?.fitToItems(segmentItems.length >= 2 ? segmentItems : displayCctv.filter((item) => matchesRoadPreset(item, scenario.roadPreset) && hasLiveTrafficStream(item)));
+        }
+
+        if (routeScenarioHighlightTimerRef.current) {
+            clearTimeout(routeScenarioHighlightTimerRef.current);
+        }
+        routeScenarioHighlightTimerRef.current = setTimeout(() => {
+            setRoutePreviewPlan(null);
+            routeScenarioHighlightTimerRef.current = null;
+        }, 4500);
+    };
+
+    const deleteRouteScenario = (scenarioId: string) => {
+        setSavedRouteScenarios((current) => current.filter((scenario) => scenario.id !== scenarioId));
+    };
+
+    const previewRouteDestinationSuggestion = (name: string) => {
+        setRoutePreviewPlan(
+            buildRouteMonitoringPlan(selectedCctv, displayCctv, roadPreset, {
+                direction: routeDirection,
+                speedKph: routeSpeedKph,
+                startQuery: routeStartQuery,
+                destinationQuery: name,
+            })
+        );
     };
 
     // ─── 핸들러 ───────────────────────────────────────────────────────────
@@ -433,9 +628,25 @@ export default function DashboardPage() {
                         routeScopeMode={routeScopeMode}
                         onRouteScopeModeChange={setRouteScopeMode}
                         routeStartQuery={routeStartQuery}
-                        onRouteStartQueryChange={setRouteStartQuery}
+                        onRouteStartQueryChange={(value) => {
+                            setRouteStartQuery(value);
+                            setRoutePreviewPlan(null);
+                        }}
                         routeDestinationQuery={routeDestinationQuery}
-                        onRouteDestinationQueryChange={setRouteDestinationQuery}
+                        onRouteDestinationQueryChange={(value) => {
+                            setRouteDestinationQuery(value);
+                            setRoutePreviewPlan(null);
+                        }}
+                        routeScenarioName={routeScenarioName}
+                        onRouteScenarioNameChange={setRouteScenarioName}
+                        canSaveRouteScenario={Boolean(routeMonitoringPlan && roadPreset !== 'all')}
+                        onSaveRouteScenario={saveRouteScenario}
+                        savedRouteScenarios={savedRouteScenarios}
+                        onLoadRouteScenario={loadRouteScenario}
+                        onDeleteRouteScenario={deleteRouteScenario}
+                        onRouteStartSuggestionPreview={previewRouteStartSuggestion}
+                        onRouteDestinationSuggestionPreview={previewRouteDestinationSuggestion}
+                        onRouteSuggestionPreviewClear={clearRoutePreview}
                         routeRoadLabel={roadPreset !== 'all' ? routeMonitoringPlan?.roadLabel ?? undefined : undefined}
                         routeStartSuggestions={routeStartSuggestionSummaries}
                     routePlanSummary={routeMonitoringPlan ? {
@@ -456,6 +667,8 @@ export default function DashboardPage() {
                         destinationMatched: routeMonitoringPlan.destinationMatched,
                         destinationSuggestions: routeDestinationSuggestionSummaries,
                         focusCount: routeMonitoringPlan.focusCount,
+                        highIdentificationCount: routeMonitoringPlan.highIdentificationCount,
+                        mediumIdentificationCount: routeMonitoringPlan.mediumIdentificationCount,
                         bundleCount: routeMonitoringPlan.bundleCount,
                         segmentCount: routeMonitoringPlan.segmentCount,
                         directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
@@ -478,7 +691,11 @@ export default function DashboardPage() {
                     <CctvMap
                         ref={mapRef}
                         items={visibleMapItems}
+                        roadOverlayItems={roadOverlayItems}
+                        roadPreset={roadPreset}
+                        onRoadPresetSelect={handleRoadPresetChange}
                         routeMonitoringPlan={routeMonitoringPlan}
+                        routePreviewPlan={routePreviewPlan}
                         onSelect={(c) => setSelectedId(c.id)}
                         satelliteMode={satelliteMode}
                         satelliteOpacity={satelliteOpacity}
@@ -580,6 +797,8 @@ export default function DashboardPage() {
                                 bundleCount: routeMonitoringPlan.bundleCount,
                                 segmentCount: routeMonitoringPlan.segmentCount,
                                 focusCount: routeMonitoringPlan.focusCount,
+                                highIdentificationCount: routeMonitoringPlan.highIdentificationCount,
+                                mediumIdentificationCount: routeMonitoringPlan.mediumIdentificationCount,
                                 directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
                                 directionSourceLabel: getRouteDirectionSourceLabel(routeMonitoringPlan.directionSource),
                                 scopeLabel: getRouteScopeLabel(routeScopeMode),
@@ -642,6 +861,8 @@ export default function DashboardPage() {
                         bundleCount: routeMonitoringPlan.bundleCount,
                         segmentCount: routeMonitoringPlan.segmentCount,
                         focusCount: routeMonitoringPlan.focusCount,
+                        highIdentificationCount: routeMonitoringPlan.highIdentificationCount,
+                        mediumIdentificationCount: routeMonitoringPlan.mediumIdentificationCount,
                         directionLabel: getRouteDirectionLabel(routeMonitoringPlan.resolvedDirection),
                         speedKph: routeMonitoringPlan.speedKph,
                         directionSourceLabel: getRouteDirectionSourceLabel(routeMonitoringPlan.directionSource),

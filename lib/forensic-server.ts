@@ -14,6 +14,16 @@ const ANALYZE_PROXY_TIMEOUT_MS = 130000;
 const UPSTREAM_WAKE_RETRY_DELAY_MS = 10000;
 const UPSTREAM_MAX_ATTEMPTS = 2;
 
+type ForensicOcrProbe = {
+    engine?: string;
+    configured?: boolean;
+    attempted?: boolean;
+    ready?: boolean;
+    lazy_load?: boolean;
+    status?: string;
+    error?: string | null;
+};
+
 function trimTrailingSlash(value: string) {
     return value.replace(/\/+$/, '');
 }
@@ -51,6 +61,8 @@ function fallbackProbe(message?: string) {
         reachable: true,
         httpStatus: 200,
         provider: 'fallback' as const,
+        mode: 'fallback',
+        ocr: null,
         message: message || '외부 ITS 차량 분석 백엔드 미응답. 내장 데모 fallback으로 계속 운용합니다.',
     };
 }
@@ -64,6 +76,8 @@ export async function probeForensicApi() {
                 reachable: false,
                 httpStatus: 0,
                 provider: 'missing' as const,
+                mode: null,
+                ocr: null,
                 message: getForensicConfigMessage(),
             };
     }
@@ -78,14 +92,17 @@ export async function probeForensicApi() {
             signal: controller.signal,
         });
 
-        const payload = await response.json().catch(() => null) as { mode?: string } | null;
+        const payload = await response.json().catch(() => null) as { mode?: string; ocr?: ForensicOcrProbe } | null;
         const modeLabel = typeof payload?.mode === 'string' ? payload.mode : null;
+        const ocr = payload?.ocr && typeof payload.ocr === 'object' ? payload.ocr : null;
 
         return {
             enabled: true,
             reachable: true,
             httpStatus: response.status,
             provider: 'configured' as const,
+            mode: modeLabel,
+            ocr,
             message: response.ok
                 ? `ITS 차량 분석 백엔드 응답 확인됨${modeLabel ? ` (${modeLabel})` : ''}`
                 : `ITS 차량 분석 백엔드 연결됨 (HTTP ${response.status})`,
@@ -98,6 +115,8 @@ export async function probeForensicApi() {
                 reachable: true,
                 httpStatus: 200,
                 provider: 'configured' as const,
+                mode: null,
+                ocr: null,
                 message: 'ITS 차량 분석 백엔드가 기동 중이거나 Render free warmup 중입니다. 실제 분석 요청은 계속 외부 백엔드를 우선 사용합니다.',
             };
         }
@@ -112,6 +131,8 @@ export async function probeForensicApi() {
                 reachable: false,
                 httpStatus: 0,
                 provider: 'configured' as const,
+                mode: null,
+                ocr: null,
                 message: error instanceof Error
                     ? `ITS 차량 분석 백엔드 미응답: ${error.message}`
                     : 'ITS 차량 분석 백엔드 미응답',

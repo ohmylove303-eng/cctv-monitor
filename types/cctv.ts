@@ -40,6 +40,9 @@ export interface ForensicTrackCamera {
     timeWindowLabel?: string;
     travelOrder?: number;
     isRouteFocus?: boolean;
+    identificationScore?: number;
+    identificationGrade?: 'high' | 'medium' | 'low';
+    identificationReason?: string;
 }
 
 export interface ForensicRouteContext {

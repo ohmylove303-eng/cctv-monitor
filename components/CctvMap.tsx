@@ -6,10 +6,11 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import type { LayersList } from '@deck.gl/core';
-import { CctvItem } from '@/types/cctv';
+import { CctvItem, RoadPreset } from '@/types/cctv';
 import type { SatelliteMode } from '@/components/SatelliteControlPanel';
 import { hasVerifiedCoordinate } from '@/lib/coordinate-quality';
 import type { RouteMonitoringPlan } from '@/lib/route-monitoring';
+import { ROAD_PRESET_OPTIONS, matchesRoadPreset } from '@/lib/road-presets';
 
 export interface CctvMapHandle {
     flyTo: (lat: number, lng: number, zoom?: number) => void;
@@ -18,7 +19,11 @@ export interface CctvMapHandle {
 
 interface Props {
     items: CctvItem[];
+    roadOverlayItems?: CctvItem[];
+    roadPreset?: RoadPreset;
+    onRoadPresetSelect?: (preset: RoadPreset) => void;
     routeMonitoringPlan?: RouteMonitoringPlan | null;
+    routePreviewPlan?: RouteMonitoringPlan | null;
     onSelect: (cctv: CctvItem) => void;
     // 위성 레이어 props
     satelliteMode?: SatelliteMode;
@@ -357,9 +362,14 @@ function liftOperationalLayers(map: import('maplibre-gl').Map) {
         'drone-restricted-stroke',
         'drone-no-fly-fill',
         'drone-no-fly-stroke',
+        ROAD_PRESET_LINE_LAYER,
+        ROAD_PRESET_HIT_LAYER,
+        ROAD_PRESET_LABEL_LAYER,
         CCTV_LAYER,
         ROUTE_LINE_LAYER,
         ROUTE_FOCUS_LAYER,
+        ROUTE_PREVIEW_LINE_LAYER,
+        ROUTE_PREVIEW_FOCUS_LAYER,
         REGION_LABEL_LAYER,
     ].forEach((id) => moveLayerIfPresent(map, id));
 }
@@ -379,6 +389,13 @@ const REGION_LABEL_LAYER = 'region-boundaries-label';
 const ROUTE_SOURCE = 'route-monitoring-source';
 const ROUTE_LINE_LAYER = 'route-monitoring-line';
 const ROUTE_FOCUS_LAYER = 'route-monitoring-focus';
+const ROUTE_PREVIEW_SOURCE = 'route-monitoring-preview-source';
+const ROUTE_PREVIEW_LINE_LAYER = 'route-monitoring-preview-line';
+const ROUTE_PREVIEW_FOCUS_LAYER = 'route-monitoring-preview-focus';
+const ROAD_PRESET_SOURCE = 'road-preset-source';
+const ROAD_PRESET_LINE_LAYER = 'road-preset-line';
+const ROAD_PRESET_HIT_LAYER = 'road-preset-hit';
+const ROAD_PRESET_LABEL_LAYER = 'road-preset-label';
 const SATELLITE_REQUEST_SCALE = 2;
 const SATELLITE_REQUEST_MAX_DIMENSION = 2048;
 const SATELLITE_REFRESH_DEBOUNCE_MS = 180;
@@ -568,6 +585,120 @@ function buildCctvGeoJson(items: CctvItem[]) {
     };
 }
 
+function toLocalMeters(originLat: number, originLng: number, lat: number, lng: number) {
+    const latFactor = 111_320;
+    const lngFactor = 111_320 * Math.cos((originLat * Math.PI) / 180);
+
+    return {
+        x: (lng - originLng) * lngFactor,
+        y: (lat - originLat) * latFactor,
+    };
+}
+
+function computePrincipalAxis(points: Array<{ x: number; y: number }>) {
+    if (points.length < 2) {
+        return { ux: 1, uy: 0 };
+    }
+
+    const meanX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const meanY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+
+    let xx = 0;
+    let yy = 0;
+    let xy = 0;
+
+    for (const point of points) {
+        const dx = point.x - meanX;
+        const dy = point.y - meanY;
+        xx += dx * dx;
+        yy += dy * dy;
+        xy += dx * dy;
+    }
+
+    const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+    return {
+        ux: Math.cos(angle),
+        uy: Math.sin(angle),
+    };
+}
+
+function sortRoadAxisItems(items: CctvItem[]) {
+    if (items.length <= 2) {
+        return [...items];
+    }
+
+    const originLat = items.reduce((sum, item) => sum + item.lat, 0) / items.length;
+    const originLng = items.reduce((sum, item) => sum + item.lng, 0) / items.length;
+    const projected = items.map((item) => ({
+        item,
+        ...toLocalMeters(originLat, originLng, item.lat, item.lng),
+    }));
+    const axis = computePrincipalAxis(projected.map((point) => ({ x: point.x, y: point.y })));
+
+    return projected
+        .map((point) => ({
+            item: point.item,
+            distance: point.x * axis.ux + point.y * axis.uy,
+        }))
+        .sort((left, right) => left.distance - right.distance)
+        .map((entry) => entry.item);
+}
+
+function buildRoadPresetGeoJson(items: CctvItem[], selectedPreset: RoadPreset) {
+    const features: any[] = [];
+
+    ROAD_PRESET_OPTIONS
+        .filter((option) => option.id !== 'all')
+        .forEach((option) => {
+            const roadItems = sortRoadAxisItems(
+                items.filter((item) => matchesRoadPreset(item, option.id))
+            );
+
+            if (roadItems.length < 2) {
+                return;
+            }
+
+            const coordinates = roadItems.map((item) => [item.lng, item.lat]);
+            const midIndex = Math.floor(coordinates.length / 2);
+            const [labelLng, labelLat] = coordinates[midIndex];
+
+            features.push({
+                type: 'Feature',
+                properties: {
+                    roadPreset: option.id,
+                    roadLabel: option.label,
+                    selected: selectedPreset === option.id ? 1 : 0,
+                    cameraCount: roadItems.length,
+                    kind: 'line',
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates,
+                },
+            });
+
+            features.push({
+                type: 'Feature',
+                properties: {
+                    roadPreset: option.id,
+                    roadLabel: option.label,
+                    selected: selectedPreset === option.id ? 1 : 0,
+                    cameraCount: roadItems.length,
+                    kind: 'label',
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: [labelLng, labelLat],
+                },
+            });
+        });
+
+    return {
+        type: 'FeatureCollection' as const,
+        features,
+    };
+}
+
 function removeSatLayers(map: import('maplibre-gl').Map) {
     if (map.getLayer(SAT_IMAGE_LAYER)) map.removeLayer(SAT_IMAGE_LAYER);
     if (map.getLayer(SAT_RASTER_LAYER)) map.removeLayer(SAT_RASTER_LAYER);
@@ -681,6 +812,94 @@ function syncCctvLayers(map: import('maplibre-gl').Map, items: CctvItem[]) {
     source?.setData(buildCctvGeoJson(items) as any);
 }
 
+function ensureRoadPresetLayers(map: import('maplibre-gl').Map) {
+    if (!map.getSource(ROAD_PRESET_SOURCE)) {
+        map.addSource(ROAD_PRESET_SOURCE, {
+            type: 'geojson',
+            data: buildRoadPresetGeoJson([], 'all'),
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_LINE_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_LINE_LAYER,
+            type: 'line',
+            source: ROAD_PRESET_SOURCE,
+            filter: ['==', ['get', 'kind'], 'line'],
+            paint: {
+                'line-color': [
+                    'case',
+                    ['==', ['get', 'selected'], 1], '#fbbf24',
+                    '#38bdf8',
+                ],
+                'line-width': [
+                    'case',
+                    ['==', ['get', 'selected'], 1], 6,
+                    3.5,
+                ],
+                'line-opacity': [
+                    'case',
+                    ['==', ['get', 'selected'], 1], 0.92,
+                    0.38,
+                ],
+            },
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_HIT_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_HIT_LAYER,
+            type: 'line',
+            source: ROAD_PRESET_SOURCE,
+            filter: ['==', ['get', 'kind'], 'line'],
+            paint: {
+                'line-color': '#000000',
+                'line-width': 18,
+                'line-opacity': 0.01,
+            },
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_LABEL_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_LABEL_LAYER,
+            type: 'symbol',
+            source: ROAD_PRESET_SOURCE,
+            filter: ['==', ['get', 'kind'], 'label'],
+            layout: {
+                'text-field': ['get', 'roadLabel'],
+                'text-size': 11,
+                'text-font': ['Open Sans Bold'],
+                'text-allow-overlap': false,
+            },
+            paint: {
+                'text-color': [
+                    'case',
+                    ['==', ['get', 'selected'], 1], '#fef3c7',
+                    '#bae6fd',
+                ],
+                'text-halo-color': 'rgba(15,23,42,0.92)',
+                'text-halo-width': 1.4,
+                'text-opacity': [
+                    'case',
+                    ['==', ['get', 'selected'], 1], 0.98,
+                    0.82,
+                ],
+            },
+        });
+    }
+}
+
+function syncRoadPresetLayers(
+    map: import('maplibre-gl').Map,
+    items: CctvItem[],
+    selectedPreset: RoadPreset
+) {
+    ensureRoadPresetLayers(map);
+    const source = map.getSource(ROAD_PRESET_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
+    source?.setData(buildRoadPresetGeoJson(items, selectedPreset) as any);
+}
+
 function buildRouteMonitoringGeoJson(plan: RouteMonitoringPlan | null, items: CctvItem[]) {
     if (!plan) {
         return { type: 'FeatureCollection' as const, features: [] as any[] };
@@ -723,6 +942,8 @@ function buildRouteMonitoringGeoJson(plan: RouteMonitoringPlan | null, items: Cc
                 etaMinutes: candidate.etaMinutes,
                 isFocus: plan.focusIds.includes(candidate.id) ? 1 : 0,
                 timeWindowRank,
+                identificationGrade: candidate.identificationGrade,
+                identificationScore: candidate.identificationScore,
             },
             geometry: {
                 type: 'Point',
@@ -769,6 +990,7 @@ function ensureRouteMonitoringLayers(map: import('maplibre-gl').Map) {
             paint: {
                 'circle-radius': [
                     'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], 8.8,
                     ['==', ['get', 'isFocus'], 1], 8,
                     ['==', ['get', 'isForward'], 1], 6.5,
                     5,
@@ -780,8 +1002,18 @@ function ensureRouteMonitoringLayers(map: import('maplibre-gl').Map) {
                     ['==', ['get', 'timeWindowRank'], 2], '#60a5fa',
                     '#94a3b8',
                 ],
-                'circle-stroke-color': '#f0f9ff',
-                'circle-stroke-width': ['case', ['==', ['get', 'isFocus'], 1], 2.6, 2],
+                'circle-stroke-color': [
+                    'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], '#fbbf24',
+                    ['==', ['get', 'identificationGrade'], 'medium'], '#bfdbfe',
+                    '#f0f9ff',
+                ],
+                'circle-stroke-width': [
+                    'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], 3.2,
+                    ['==', ['get', 'isFocus'], 1], 2.6,
+                    2,
+                ],
                 'circle-opacity': 0.88,
             },
         });
@@ -798,10 +1030,86 @@ function syncRouteMonitoringLayers(
     source?.setData(buildRouteMonitoringGeoJson(plan, items) as any);
 }
 
+function ensureRoutePreviewLayers(map: import('maplibre-gl').Map) {
+    if (!map.getSource(ROUTE_PREVIEW_SOURCE)) {
+        map.addSource(ROUTE_PREVIEW_SOURCE, {
+            type: 'geojson',
+            data: buildRouteMonitoringGeoJson(null, []),
+        });
+    }
+
+    if (!map.getLayer(ROUTE_PREVIEW_LINE_LAYER)) {
+        map.addLayer({
+            id: ROUTE_PREVIEW_LINE_LAYER,
+            type: 'line',
+            source: ROUTE_PREVIEW_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: {
+                'line-color': '#fbbf24',
+                'line-width': 4,
+                'line-opacity': 0.92,
+                'line-dasharray': [1.2, 1.2],
+            },
+        });
+    }
+
+    if (!map.getLayer(ROUTE_PREVIEW_FOCUS_LAYER)) {
+        map.addLayer({
+            id: ROUTE_PREVIEW_FOCUS_LAYER,
+            type: 'circle',
+            source: ROUTE_PREVIEW_SOURCE,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-radius': [
+                    'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], 9.5,
+                    ['==', ['get', 'isFocus'], 1], 9,
+                    ['==', ['get', 'isForward'], 1], 7,
+                    5.5,
+                ],
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'timeWindowRank'], 0], '#fde68a',
+                    ['==', ['get', 'timeWindowRank'], 1], '#fbbf24',
+                    ['==', ['get', 'timeWindowRank'], 2], '#f59e0b',
+                    '#f97316',
+                ],
+                'circle-stroke-color': [
+                    'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], '#fef3c7',
+                    ['==', ['get', 'identificationGrade'], 'medium'], '#fde68a',
+                    '#fff7ed',
+                ],
+                'circle-stroke-width': [
+                    'case',
+                    ['==', ['get', 'identificationGrade'], 'high'], 3.4,
+                    ['==', ['get', 'isFocus'], 1], 2.8,
+                    2.2,
+                ],
+                'circle-opacity': 0.95,
+            },
+        });
+    }
+}
+
+function syncRoutePreviewLayers(
+    map: import('maplibre-gl').Map,
+    plan: RouteMonitoringPlan | null,
+    items: CctvItem[]
+) {
+    ensureRoutePreviewLayers(map);
+    const source = map.getSource(ROUTE_PREVIEW_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
+    source?.setData(buildRouteMonitoringGeoJson(plan, items) as any);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 const CctvMap = forwardRef<CctvMapHandle, Props>(({
     items,
+    roadOverlayItems = [],
+    roadPreset = 'all',
+    onRoadPresetSelect,
     routeMonitoringPlan = null,
+    routePreviewPlan = null,
     onSelect,
     satelliteMode = 'off',
     satelliteOpacity = 60,
@@ -821,7 +1129,9 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     const planetCoverageRef = useRef<readonly [number, number, number, number] | null>(null);
     const mapReadyRef = useRef(false);
     const itemsRef = useRef<CctvItem[]>(items);
+    const roadOverlayItemsRef = useRef<CctvItem[]>(roadOverlayItems);
     const onSelectRef = useRef(onSelect);
+    const onRoadPresetSelectRef = useRef(onRoadPresetSelect);
 
     const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
     const mapStyleRef = useRef<MapStyle>('dark');
@@ -850,8 +1160,10 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
 
     useEffect(() => {
         itemsRef.current = items;
+        roadOverlayItemsRef.current = roadOverlayItems;
         onSelectRef.current = onSelect;
-    }, [items, onSelect]);
+        onRoadPresetSelectRef.current = onRoadPresetSelect;
+    }, [items, onRoadPresetSelect, onSelect, roadOverlayItems]);
 
     useEffect(() => {
         mapStyleRef.current = mapStyle;
@@ -961,6 +1273,20 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         mapRef.current?.getCanvas().style.setProperty('cursor', '');
     }, []);
 
+    const handleRoadPresetPick = useCallback((event: any) => {
+        const pickedRoadPreset = event.features?.[0]?.properties?.roadPreset as RoadPreset | undefined;
+        if (!pickedRoadPreset) return;
+        onRoadPresetSelectRef.current?.(pickedRoadPreset);
+    }, []);
+
+    const handleRoadPresetPointerEnter = useCallback(() => {
+        mapRef.current?.getCanvas().style.setProperty('cursor', 'pointer');
+    }, []);
+
+    const handleRoadPresetPointerLeave = useCallback(() => {
+        mapRef.current?.getCanvas().style.setProperty('cursor', '');
+    }, []);
+
     const bindCctvInteractions = useCallback((map: import('maplibre-gl').Map) => {
         map.off('click', CCTV_LAYER, handleCctvPick);
         map.off('mouseenter', CCTV_LAYER, handleCctvPointerEnter);
@@ -983,6 +1309,18 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         });
     }, [handleDronePick, handleDronePointerEnter, handleDronePointerLeave]);
 
+    const bindRoadPresetInteractions = useCallback((map: import('maplibre-gl').Map) => {
+        [ROAD_PRESET_HIT_LAYER, ROAD_PRESET_LABEL_LAYER].forEach((id) => {
+            if (!map.getLayer(id)) return;
+            map.off('click', id, handleRoadPresetPick);
+            map.off('mouseenter', id, handleRoadPresetPointerEnter);
+            map.off('mouseleave', id, handleRoadPresetPointerLeave);
+            map.on('click', id, handleRoadPresetPick);
+            map.on('mouseenter', id, handleRoadPresetPointerEnter);
+            map.on('mouseleave', id, handleRoadPresetPointerLeave);
+        });
+    }, [handleRoadPresetPick, handleRoadPresetPointerEnter, handleRoadPresetPointerLeave]);
+
     const syncDomMarkers = useCallback(() => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
@@ -996,12 +1334,24 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
         syncRegionLayers(map, items);
+        syncRoadPresetLayers(map, roadOverlayItems, roadPreset);
         syncCctvLayers(map, items);
         syncRouteMonitoringLayers(map, routeMonitoringPlan, items);
+        syncRoutePreviewLayers(map, routePreviewPlan, items);
         bindCctvInteractions(map);
+        bindRoadPresetInteractions(map);
         syncDomMarkers();
         liftOperationalLayers(map);
-    }, [bindCctvInteractions, items, routeMonitoringPlan, syncDomMarkers]);
+    }, [
+        bindCctvInteractions,
+        bindRoadPresetInteractions,
+        items,
+        roadOverlayItems,
+        roadPreset,
+        routeMonitoringPlan,
+        routePreviewPlan,
+        syncDomMarkers,
+    ]);
 
     const revokeSatelliteObjectUrl = useCallback(() => {
         if (satelliteObjectUrlRef.current) {
@@ -1131,10 +1481,13 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                 addDroneLayers(map);
                 syncRegionLayers(map, itemsRef.current);
                 syncDroneVisibility();
+                syncRoadPresetLayers(map, roadOverlayItemsRef.current, roadPreset);
                 syncCctvLayers(map, itemsRef.current);
                 syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
+                syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
                 bindCctvInteractions(map);
                 bindDroneInteractions(map);
+                bindRoadPresetInteractions(map);
                 syncDomMarkers();
                 liftOperationalLayers(map);
 
@@ -1196,7 +1549,17 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
             mapReadyRef.current = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [bindCctvInteractions, bindDroneInteractions, requestBaseMapViewportRefresh, requestSatelliteRefresh, revokeSatelliteObjectUrl, syncDomMarkers, syncDroneVisibility]);
+    }, [
+        bindCctvInteractions,
+        bindDroneInteractions,
+        bindRoadPresetInteractions,
+        requestBaseMapViewportRefresh,
+        requestSatelliteRefresh,
+        revokeSatelliteObjectUrl,
+        roadPreset,
+        syncDomMarkers,
+        syncDroneVisibility,
+    ]);
 
     // ─── 아이템 변경 시 마커 갱신 ─────────────────────────────────────────
     useEffect(() => {
@@ -1216,10 +1579,13 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
             addDroneLayers(map);
             syncRegionLayers(map, itemsRef.current);
             syncDroneVisibility();
+            syncRoadPresetLayers(map, roadOverlayItemsRef.current, roadPreset);
             syncCctvLayers(map, itemsRef.current);
             syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
+            syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
             bindCctvInteractions(map);
             bindDroneInteractions(map);
+            bindRoadPresetInteractions(map);
             syncDomMarkers();
             liftOperationalLayers(map);
             timeoutId = window.setTimeout(() => {
@@ -1287,7 +1653,18 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                 window.clearTimeout(timeoutId);
             }
         };
-    }, [bindCctvInteractions, bindDroneInteractions, fetchGoogleBasemapMetadata, mapStyle, routeMonitoringPlan, syncDomMarkers, syncDroneVisibility]);
+    }, [
+        bindCctvInteractions,
+        bindDroneInteractions,
+        bindRoadPresetInteractions,
+        fetchGoogleBasemapMetadata,
+        mapStyle,
+        roadPreset,
+        routeMonitoringPlan,
+        routePreviewPlan,
+        syncDomMarkers,
+        syncDroneVisibility,
+    ]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1532,6 +1909,22 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         return layers;
     }, [satPositions]);
 
+    const routePreviewSummary = useMemo(() => {
+        if (!routePreviewPlan) return null;
+        const maxEtaMinutes = routePreviewPlan.candidates.reduce((max, candidate) => (
+            candidate.etaMinutes > max ? candidate.etaMinutes : max
+        ), 0);
+
+        return {
+            roadLabel: routePreviewPlan.roadLabel,
+            originLabel: routePreviewPlan.originLabel,
+            destinationLabel: routePreviewPlan.destinationLabel,
+            segmentCount: routePreviewPlan.segmentCount,
+            maxEtaMinutes,
+            highIdentificationCount: routePreviewPlan.highIdentificationCount,
+        };
+    }, [routePreviewPlan]);
+
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
             {/* 1. 기본 MapLibre 컨테이너 (과거 기능 무결성 유지) */}
@@ -1656,6 +2049,40 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                     {baseMapProvider === 'arcgis' && (
                         <div>Google basemap unavailable. ArcGIS imagery fallback is active.</div>
                     )}
+                </div>
+            )}
+
+            {routePreviewSummary && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        right: 12,
+                        bottom: 228,
+                        zIndex: 16,
+                        maxWidth: 280,
+                        padding: '8px 10px',
+                        borderRadius: 9,
+                        background: 'rgba(120,53,15,0.84)',
+                        border: '1px solid rgba(251,191,36,0.45)',
+                        backdropFilter: 'blur(10px)',
+                        color: '#fde68a',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
+                        pointerEvents: 'none',
+                    }}
+                >
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', color: '#fbbf24' }}>
+                        구간 미리보기
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: '#fef3c7', lineHeight: 1.4 }}>
+                        {routePreviewSummary.originLabel}
+                        {routePreviewSummary.destinationLabel ? ` → ${routePreviewSummary.destinationLabel}` : ''}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 10, color: '#fde68a', lineHeight: 1.5 }}>
+                        {routePreviewSummary.roadLabel} · 구간 {routePreviewSummary.segmentCount}대 · 최대 {routePreviewSummary.maxEtaMinutes}분
+                    </div>
+                    <div style={{ marginTop: 2, fontSize: 10, color: '#fef3c7', lineHeight: 1.5 }}>
+                        식별 우선 {routePreviewSummary.highIdentificationCount}대
+                    </div>
                 </div>
             )}
 

@@ -26,6 +26,8 @@ interface Props {
         bundleCount: number;
         segmentCount: number;
         focusCount: number;
+        highIdentificationCount: number;
+        mediumIdentificationCount: number;
         directionLabel: string;
         directionSourceLabel: string;
         scopeLabel: string;
@@ -42,6 +44,9 @@ interface Props {
             lateralOffsetMeters: number;
             travelOrder: number;
             isForward: boolean;
+            identificationScore: number;
+            identificationGrade: 'high' | 'medium' | 'low';
+            identificationReason: string;
             etaMinutes: number;
             timeWindowLabel: string;
         }>;
@@ -620,6 +625,7 @@ export default function CameraDetail({
                             </div>
                             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.5 }}>
                                 {routeMonitoring.originLabel}{routeMonitoring.destinationLabel ? ` → ${routeMonitoring.destinationLabel}` : ''} / {routeMonitoring.roadLabel} 기준 {routeMonitoring.directionLabel} / {routeMonitoring.directionSourceLabel} / {routeMonitoring.scopeLabel}. 즉시 {routeMonitoring.immediateCount}대, 단기 {routeMonitoring.shortCount}대, 중기 {routeMonitoring.mediumCount}대를 먼저 보고, 구간 {routeMonitoring.segmentCount}대 중 우선 추적 {routeMonitoring.focusCount}대를 상단에 두며, 전체 도로축은 {routeMonitoring.bundleCount}대입니다.
+                                번호판/색상 식별 우선 {routeMonitoring.highIdentificationCount}대, 차종/색상 확인 우선 {routeMonitoring.mediumIdentificationCount}대를 먼저 추천합니다.
                             </div>
                         </div>
                         {routeMonitoring.candidates.map((candidate) => (
@@ -637,16 +643,46 @@ export default function CameraDetail({
                                     textAlign: 'left',
                                 }}
                             >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                    <span style={{ fontSize: 11, fontWeight: 700 }}>
-                                        {candidate.travelOrder}. {candidate.name}
-                                    </span>
-                                    <span style={{ fontSize: 10, color: candidate.isForward ? '#22d3ee' : '#94a3b8', flexShrink: 0 }}>
-                                        {candidate.isForward ? '집중' : '보조'}
-                                    </span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700 }}>
+                                            {candidate.travelOrder}. {candidate.name}
+                                        </span>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                                            <span style={{
+                                                fontSize: 9,
+                                                fontWeight: 700,
+                                                color: candidate.identificationGrade === 'high' ? '#fbbf24' : candidate.identificationGrade === 'medium' ? '#93c5fd' : '#94a3b8',
+                                                background: candidate.identificationGrade === 'high'
+                                                    ? 'rgba(251,191,36,0.12)'
+                                                    : candidate.identificationGrade === 'medium'
+                                                        ? 'rgba(59,130,246,0.12)'
+                                                        : 'rgba(148,163,184,0.12)',
+                                                border: `1px solid ${candidate.identificationGrade === 'high'
+                                                    ? 'rgba(251,191,36,0.35)'
+                                                    : candidate.identificationGrade === 'medium'
+                                                        ? 'rgba(59,130,246,0.35)'
+                                                        : 'rgba(148,163,184,0.2)'}`,
+                                                borderRadius: 999,
+                                                padding: '2px 6px',
+                                            }}>
+                                                {candidate.identificationGrade === 'high'
+                                                    ? '식별 우선'
+                                                    : candidate.identificationGrade === 'medium'
+                                                        ? '확인 우선'
+                                                        : '흐름 감시'}
+                                            </span>
+                                            <span style={{ fontSize: 9, color: candidate.isForward ? '#22d3ee' : '#94a3b8' }}>
+                                                {candidate.isForward ? '집중' : '보조'}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4, lineHeight: 1.5 }}>
-                                    {candidate.region} · {candidate.timeWindowLabel} · 경로거리 {candidate.routeDistanceKm.toFixed(1)}km · ETA {candidate.etaMinutes}분 · 측면오차 {candidate.lateralOffsetMeters}m
+                                    {candidate.region} · {candidate.timeWindowLabel} · 경로거리 {candidate.routeDistanceKm.toFixed(1)}km · ETA {candidate.etaMinutes}분 · 측면오차 {candidate.lateralOffsetMeters}m · 식별점수 {candidate.identificationScore}
+                                </div>
+                                <div style={{ fontSize: 10, color: candidate.identificationGrade === 'high' ? '#fde68a' : '#cbd5e1', marginTop: 3, lineHeight: 1.5 }}>
+                                    {candidate.identificationReason}
                                 </div>
                                 <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.5 }}>
                                     {candidate.address}
@@ -656,28 +692,35 @@ export default function CameraDetail({
                     </div>
                 )}
                 {onAnalysis && (
-                    <button
-                        onClick={onAnalysis}
-                        style={{
-                            marginTop: 10,
-                            width: '100%',
-                            padding: '10px',
-                            background: 'rgba(99,102,241,0.2)',
-                            border: '1px solid rgba(99,102,241,0.4)',
-                            borderRadius: 8,
-                            color: '#818cf8',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 8,
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        🚗 ITS 차량 분석 / 포렌식 추적
-                    </button>
+                    <>
+                        <button
+                            onClick={onAnalysis}
+                            style={{
+                                marginTop: 10,
+                                width: '100%',
+                                padding: '10px',
+                                background: 'rgba(99,102,241,0.2)',
+                                border: '1px solid rgba(99,102,241,0.4)',
+                                borderRadius: 8,
+                                color: '#818cf8',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            {routeMonitoring ? '🚗 노선 그룹 분석 / 포렌식 추적' : '🚗 ITS 차량 분석 / 포렌식 추적'}
+                        </button>
+                        {routeMonitoring && (
+                            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6, lineHeight: 1.5 }}>
+                                현재 선택한 도로축 기준으로 상위 CCTV 묶음을 먼저 훑고, 단일 카메라 확인은 모달 안에서 보조 경로로 사용합니다.
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

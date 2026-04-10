@@ -33,6 +33,40 @@ interface Props {
     onRouteStartQueryChange: (v: string) => void;
     routeDestinationQuery: string;
     onRouteDestinationQueryChange: (v: string) => void;
+    routeScenarioName: string;
+    onRouteScenarioNameChange: (v: string) => void;
+    canSaveRouteScenario: boolean;
+    onSaveRouteScenario: () => void;
+    savedRouteScenarios: Array<{
+        id: string;
+        name: string;
+        selectedCctvId?: string | null;
+        roadPreset: RoadPreset;
+        routeDirection: RouteDirection;
+        routeSpeedKph: number;
+        routeScopeMode: RouteScopeMode;
+        routeStartQuery: string;
+        routeDestinationQuery: string;
+        createdAt?: string;
+        updatedAt: string;
+    }>;
+    onLoadRouteScenario: (scenario: {
+        id: string;
+        name: string;
+        selectedCctvId?: string | null;
+        roadPreset: RoadPreset;
+        routeDirection: RouteDirection;
+        routeSpeedKph: number;
+        routeScopeMode: RouteScopeMode;
+        routeStartQuery: string;
+        routeDestinationQuery: string;
+        createdAt?: string;
+        updatedAt: string;
+    }) => void;
+    onDeleteRouteScenario: (scenarioId: string) => void;
+    onRouteStartSuggestionPreview?: (v: string) => void;
+    onRouteDestinationSuggestionPreview?: (v: string) => void;
+    onRouteSuggestionPreviewClear?: () => void;
     routeRoadLabel?: string;
     routeStartSuggestions?: Array<{
         id: string;
@@ -79,6 +113,8 @@ interface Props {
             previewMaxEtaMinutes?: number;
         }>;
         focusCount: number;
+        highIdentificationCount: number;
+        mediumIdentificationCount: number;
         bundleCount: number;
         segmentCount: number;
         directionLabel: string;
@@ -116,6 +152,12 @@ export default function SidePanel({
     routeScopeMode, onRouteScopeModeChange,
     routeStartQuery, onRouteStartQueryChange,
     routeDestinationQuery, onRouteDestinationQueryChange,
+    routeScenarioName, onRouteScenarioNameChange,
+    canSaveRouteScenario, onSaveRouteScenario,
+    savedRouteScenarios, onLoadRouteScenario, onDeleteRouteScenario,
+    onRouteStartSuggestionPreview,
+    onRouteDestinationSuggestionPreview,
+    onRouteSuggestionPreviewClear,
     routeRoadLabel,
     routeStartSuggestions = [],
     routePlanSummary = null,
@@ -476,6 +518,44 @@ export default function SidePanel({
                                     />
                                 </label>
                             </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, marginBottom: 6 }}>
+                                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <span style={{ fontSize: 9, color: '#94a3b8' }}>감시 시나리오 이름</span>
+                                    <input
+                                        type="text"
+                                        value={routeScenarioName}
+                                        onChange={(event) => onRouteScenarioNameChange(event.target.value)}
+                                        placeholder="예: 영종대교 공항 진입 감시"
+                                        style={{
+                                            padding: '7px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                            background: 'rgba(15,23,42,0.55)',
+                                            color: '#e2e8f0',
+                                            fontSize: 10,
+                                        }}
+                                    />
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={onSaveRouteScenario}
+                                    disabled={!canSaveRouteScenario}
+                                    style={{
+                                        alignSelf: 'end',
+                                        padding: '8px 10px',
+                                        borderRadius: 6,
+                                        cursor: canSaveRouteScenario ? 'pointer' : 'not-allowed',
+                                        background: canSaveRouteScenario ? 'rgba(167,139,250,0.16)' : 'rgba(255,255,255,0.04)',
+                                        border: `1px solid ${canSaveRouteScenario ? 'rgba(167,139,250,0.32)' : 'rgba(255,255,255,0.08)'}`,
+                                        color: canSaveRouteScenario ? '#ddd6fe' : '#64748b',
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        minWidth: 72,
+                                    }}
+                                >
+                                    저장
+                                </button>
+                            </div>
                             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                 <span style={{ fontSize: 9, color: '#94a3b8' }}>예상 속도</span>
                                 <input
@@ -517,9 +597,93 @@ export default function SidePanel({
                             </div>
                             <div style={{ fontSize: 9, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
                                 {routePlanSummary
-                                    ? `${routePlanSummary.originLabel}${routePlanSummary.destinationLabel ? ` → ${routePlanSummary.destinationLabel}` : ''} · ${routePlanSummary.roadLabel} · ${routePlanSummary.directionLabel}(${routePlanSummary.directionSourceLabel}) · ${routePlanSummary.scopeLabel} · 즉시 ${routePlanSummary.immediateCount}대 / 단기 ${routePlanSummary.shortCount}대 / 중기 ${routePlanSummary.mediumCount}대 / 구간 ${routePlanSummary.segmentCount}대 / 전체 ${routePlanSummary.bundleCount}대`
+                                    ? `${routePlanSummary.originLabel}${routePlanSummary.destinationLabel ? ` → ${routePlanSummary.destinationLabel}` : ''} · ${routePlanSummary.roadLabel} · ${routePlanSummary.directionLabel}(${routePlanSummary.directionSourceLabel}) · ${routePlanSummary.scopeLabel} · 식별 우선 ${routePlanSummary.highIdentificationCount}대 / 확인 우선 ${routePlanSummary.mediumIdentificationCount}대 / 즉시 ${routePlanSummary.immediateCount}대 / 단기 ${routePlanSummary.shortCount}대 / 중기 ${routePlanSummary.mediumCount}대 / 구간 ${routePlanSummary.segmentCount}대 / 전체 ${routePlanSummary.bundleCount}대`
                                     : '도로축 카메라를 하나 선택하면 추적 레이어가 지도 위에 추가됩니다.'}
                             </div>
+                            <div style={{ fontSize: 9, color: '#c4b5fd', marginTop: 6, lineHeight: 1.5 }}>
+                                포렌식은 현재 `노선 그룹 순차 분석`이 기본 경로입니다. 단일 CCTV 분석은 빠른 보조 확인용으로 둡니다.
+                            </div>
+                            {savedRouteScenarios.length > 0 && (
+                                <div style={{
+                                    marginTop: 8,
+                                    paddingTop: 8,
+                                    borderTop: '1px solid rgba(255,255,255,0.08)',
+                                }}>
+                                    <div style={{ fontSize: 9, color: '#c4b5fd', marginBottom: 5 }}>
+                                        저장된 감시 시나리오
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                        {savedRouteScenarios.slice(0, 6).map((scenario) => (
+                                            <div
+                                                key={scenario.id}
+                                                style={{
+                                                    padding: '7px 8px',
+                                                    borderRadius: 6,
+                                                    background: 'rgba(167,139,250,0.08)',
+                                                    border: '1px solid rgba(167,139,250,0.18)',
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: 10, fontWeight: 700, color: '#e9d5ff' }}>
+                                                            {scenario.name}
+                                                        </div>
+                                                        <div style={{ fontSize: 9, color: '#cbd5e1', marginTop: 2 }}>
+                                                            {scenario.routeStartQuery || '출발지 미지정'}
+                                                            {scenario.routeDestinationQuery ? ` → ${scenario.routeDestinationQuery}` : ''}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onLoadRouteScenario(scenario)}
+                                                        style={{
+                                                            padding: '5px 7px',
+                                                            borderRadius: 5,
+                                                            cursor: 'pointer',
+                                                            background: 'rgba(56,189,248,0.14)',
+                                                            border: '1px solid rgba(56,189,248,0.24)',
+                                                            color: '#7dd3fc',
+                                                            fontSize: 9,
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        불러오기
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onDeleteRouteScenario(scenario.id)}
+                                                        style={{
+                                                            padding: '5px 7px',
+                                                            borderRadius: 5,
+                                                            cursor: 'pointer',
+                                                            background: 'rgba(239,68,68,0.12)',
+                                                            border: '1px solid rgba(239,68,68,0.2)',
+                                                            color: '#fca5a5',
+                                                            fontSize: 9,
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        삭제
+                                                    </button>
+                                                </div>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    flexWrap: 'wrap',
+                                                    gap: 6,
+                                                    marginTop: 4,
+                                                    fontSize: 9,
+                                                    color: '#ddd6fe',
+                                                }}>
+                                                    <span>{ROAD_PRESET_OPTIONS.find((preset) => preset.id === scenario.roadPreset)?.label ?? scenario.roadPreset}</span>
+                                                    <span>{scenario.routeDirection === 'auto' ? '자동' : scenario.routeDirection === 'forward' ? '상행/정방향' : '하행/역방향'}</span>
+                                                    <span>{scenario.routeScopeMode === 'focus' ? '집중군' : scenario.routeScopeMode === 'bundle' ? '도로축' : '전체ITS'}</span>
+                                                    <span>{scenario.routeSpeedKph}km/h</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {!routePlanSummary && routeStartQuery && routeStartSuggestions.length > 0 && (
                                 <div style={{ marginTop: 8 }}>
                                     <div style={{ fontSize: 9, color: '#38bdf8', marginBottom: 5 }}>
@@ -530,7 +694,14 @@ export default function SidePanel({
                                             <button
                                                 key={suggestion.id}
                                                 type="button"
-                                                onClick={() => onRouteStartQueryChange(suggestion.name)}
+                                                onClick={() => {
+                                                    onRouteStartQueryChange(suggestion.name);
+                                                    onRouteSuggestionPreviewClear?.();
+                                                }}
+                                                onMouseEnter={() => onRouteStartSuggestionPreview?.(suggestion.name)}
+                                                onMouseLeave={() => onRouteSuggestionPreviewClear?.()}
+                                                onFocus={() => onRouteStartSuggestionPreview?.(suggestion.name)}
+                                                onBlur={() => onRouteSuggestionPreviewClear?.()}
                                                 style={{
                                                     padding: '7px 8px',
                                                     borderRadius: 6,
@@ -640,7 +811,14 @@ export default function SidePanel({
                                             <button
                                                 key={suggestion.id}
                                                 type="button"
-                                                onClick={() => onRouteDestinationQueryChange(suggestion.name)}
+                                                onClick={() => {
+                                                    onRouteDestinationQueryChange(suggestion.name);
+                                                    onRouteSuggestionPreviewClear?.();
+                                                }}
+                                                onMouseEnter={() => onRouteDestinationSuggestionPreview?.(suggestion.name)}
+                                                onMouseLeave={() => onRouteSuggestionPreviewClear?.()}
+                                                onFocus={() => onRouteDestinationSuggestionPreview?.(suggestion.name)}
+                                                onBlur={() => onRouteSuggestionPreviewClear?.()}
                                                 style={{
                                                     padding: '7px 8px',
                                                     borderRadius: 6,

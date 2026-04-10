@@ -11,6 +11,8 @@ export async function GET() {
         provider: probe.provider,
         reachable: probe.reachable,
         httpStatus: probe.httpStatus,
+        mode: probe.mode,
+        ocr: probe.ocr,
         message: probe.message,
     });
 }
