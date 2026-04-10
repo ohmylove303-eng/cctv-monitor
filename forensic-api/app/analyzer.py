@@ -355,14 +355,37 @@ def normalize_ocr_text(text: str) -> str:
     return re.sub(r"[\s\-_:./]", "", text.strip())
 
 
+def iter_plate_search_texts(texts: list[str]) -> list[str]:
+    normalized = [
+        normalize_ocr_text(text)
+        for text in texts
+        if normalize_ocr_text(text)
+    ]
+    search_texts: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        if value and value not in seen:
+            seen.add(value)
+            search_texts.append(value)
+
+    for index, text in enumerate(normalized):
+        add(text)
+        # EasyOCR often splits plates into adjacent tokens like "12가" + "3456".
+        # Only combine OCR-observed neighbors; do not invent missing plate text.
+        for window_size in (2, 3):
+            combined = "".join(normalized[index:index + window_size])
+            if len(combined) <= 12:
+                add(combined)
+
+    return search_texts
+
+
 def extract_plate_candidates(texts: list[str]) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
 
-    for text in texts:
-        normalized = normalize_ocr_text(text)
-        if not normalized:
-            continue
+    for normalized in iter_plate_search_texts(texts):
         for pattern in PLATE_REGEXES:
             for match in pattern.findall(normalized):
                 if match not in seen:
