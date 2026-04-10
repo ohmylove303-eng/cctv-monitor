@@ -282,7 +282,7 @@ function getPlateSignalValue(result: Pick<ForensicResult, 'ocr_status' | 'plate_
     if (result.ocr_status === 'ocr_unavailable') {
         return 'OCR 엔진 초기화 실패';
     }
-    return '미구현';
+    return 'OCR 결과 없음';
 }
 
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
