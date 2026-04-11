@@ -44,8 +44,10 @@ interface Props {
     backendProvider?: 'configured' | 'fallback' | 'missing';
     backendMessage?: string | null;
     backendOcr?: ForensicOcrRuntimeState | null;
+    trackingActiveCctvId?: string | null;
     onLocate?: (cctvId: string) => void;
     onTrackingResultChange?: (result: ForensicTrackingResult | null) => void;
+    onTrackingActiveCctvChange?: (cctvId: string | null) => void;
     onClose: () => void;
 }
 
@@ -527,8 +529,10 @@ export default function ForensicModal({
     backendProvider = 'missing',
     backendMessage,
     backendOcr = null,
+    trackingActiveCctvId = null,
     onLocate,
     onTrackingResultChange,
+    onTrackingActiveCctvChange,
     onClose,
 }: Props) {
     const [phase, setPhase] = useState<Phase>('idle');
@@ -549,6 +553,23 @@ export default function ForensicModal({
     useEffect(() => {
         onTrackingResultChange?.(trackingResult);
     }, [onTrackingResultChange, trackingResult]);
+
+    useEffect(() => {
+        if (!trackingResult) {
+            onTrackingActiveCctvChange?.(null);
+            return;
+        }
+
+        if (trackingActiveCctvId) {
+            return;
+        }
+
+        onTrackingActiveCctvChange?.(
+            trackingResult.hits[0]?.cctv_id
+            ?? trackingResult.origin_cctv_id
+            ?? null
+        );
+    }, [onTrackingActiveCctvChange, trackingActiveCctvId, trackingResult]);
 
     const isCurrentCameraSupported = supportsVehicleForensic(cctv);
     const trackScope = useMemo(
@@ -1581,14 +1602,30 @@ export default function ForensicModal({
                                     현재 조건과 일치하는 차량 이동 후보가 없습니다.
                                 </div>
                             ) : (
-                                trackingResult.hits.map((hit) => (
+                                trackingResult.hits.map((hit) => {
+                                    const isActive = trackingActiveCctvId === hit.cctv_id;
+                                    return (
                                     <div
                                         key={hit.id}
+                                        onMouseEnter={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
+                                        onFocus={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
+                                        onClick={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
+                                        tabIndex={0}
                                         style={{
-                                            background: 'rgba(255,255,255,0.03)',
-                                            border: '1px solid rgba(255,255,255,0.07)',
+                                            background: isActive
+                                                ? 'rgba(56,189,248,0.10)'
+                                                : 'rgba(255,255,255,0.03)',
+                                            border: isActive
+                                                ? '1px solid rgba(56,189,248,0.30)'
+                                                : '1px solid rgba(255,255,255,0.07)',
                                             borderRadius: 8,
                                             padding: '10px 12px',
+                                            boxShadow: isActive
+                                                ? '0 0 0 1px rgba(56,189,248,0.14), 0 12px 24px rgba(2,132,199,0.12)'
+                                                : 'none',
+                                            outline: 'none',
+                                            cursor: 'pointer',
+                                            transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease',
                                         }}
                                     >
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
@@ -1664,7 +1701,11 @@ export default function ForensicModal({
                                         )}
                                         {onLocate && hit.cctv_id && (
                                             <button
-                                                onClick={() => onLocate(hit.cctv_id)}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onTrackingActiveCctvChange?.(hit.cctv_id);
+                                                    onLocate(hit.cctv_id);
+                                                }}
                                                 style={{
                                                     marginTop: 8,
                                                     padding: '6px 10px',
@@ -1681,7 +1722,8 @@ export default function ForensicModal({
                                             </button>
                                         )}
                                     </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     )}

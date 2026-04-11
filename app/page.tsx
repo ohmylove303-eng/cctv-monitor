@@ -129,6 +129,7 @@ export default function DashboardPage() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [showForensic, setShowForensic] = useState(false);
     const [trackingOverlay, setTrackingOverlay] = useState<ForensicTrackingResult | null>(null);
+    const [trackingActiveCctvId, setTrackingActiveCctvId] = useState<string | null>(null);
     const [forensicStatus, setForensicStatus] = useState({
         enabled: false,
         provider: 'missing' as 'configured' | 'fallback' | 'missing',
@@ -643,6 +644,7 @@ export default function DashboardPage() {
         const item = displayCctv.find(c => c.id === id);
         if (item) {
             setSelectedId(item.id);
+            setTrackingActiveCctvId(item.id);
             mapRef.current?.flyTo(item.lat, item.lng, 15);
         }
     };
@@ -652,6 +654,33 @@ export default function DashboardPage() {
             setSelectedId(null);
         }
     }, [selectedCctv, selectedId]);
+
+    useEffect(() => {
+        if (!trackingOverlay) {
+            setTrackingActiveCctvId(null);
+            return;
+        }
+
+        const availableIds = new Set<string>();
+        if (trackingOverlay.origin_cctv_id) {
+            availableIds.add(trackingOverlay.origin_cctv_id);
+        }
+        trackingOverlay.hits.forEach((hit) => {
+            if (hit.cctv_id) {
+                availableIds.add(hit.cctv_id);
+            }
+        });
+
+        setTrackingActiveCctvId((current) => {
+            if (current && availableIds.has(current)) {
+                return current;
+            }
+
+            return trackingOverlay.hits[0]?.cctv_id
+                ?? trackingOverlay.origin_cctv_id
+                ?? null;
+        });
+    }, [trackingOverlay]);
 
     return (
         <main className="app-container">
@@ -749,7 +778,9 @@ export default function DashboardPage() {
                         roadOverlayItems={roadOverlayItems}
                         roadPreset={roadPreset}
                         trackingOverlay={trackingOverlay}
+                        trackingActiveCctvId={trackingActiveCctvId}
                         trackingLookupItems={displayCctv}
+                        onTrackingActiveCctvChange={setTrackingActiveCctvId}
                         onRoadPresetSelect={handleRoadPresetChange}
                         routeMonitoringPlan={routeMonitoringPlan}
                         routePreviewPlan={routePreviewPlan}
@@ -933,7 +964,9 @@ export default function DashboardPage() {
                     backendProvider={forensicStatus.provider}
                     backendMessage={forensicStatus.message}
                     backendOcr={forensicStatus.ocr}
+                    trackingActiveCctvId={trackingActiveCctvId}
                     onTrackingResultChange={setTrackingOverlay}
+                    onTrackingActiveCctvChange={setTrackingActiveCctvId}
                     onLocate={handleLocate}
                     onClose={() => setShowForensic(false)}
                 />

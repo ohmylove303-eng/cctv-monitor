@@ -22,7 +22,9 @@ interface Props {
     roadOverlayItems?: CctvItem[];
     roadPreset?: RoadPreset;
     trackingOverlay?: ForensicTrackingResult | null;
+    trackingActiveCctvId?: string | null;
     trackingLookupItems?: CctvItem[];
+    onTrackingActiveCctvChange?: (cctvId: string | null) => void;
     onRoadPresetSelect?: (preset: RoadPreset) => void;
     routeMonitoringPlan?: RouteMonitoringPlan | null;
     routePreviewPlan?: RouteMonitoringPlan | null;
@@ -378,6 +380,7 @@ function liftOperationalLayers(map: import('maplibre-gl').Map) {
         ROUTE_PREVIEW_FOCUS_LAYER,
         TRACKING_LINE_LAYER,
         TRACKING_POINT_LAYER,
+        TRACKING_ACTIVE_RING_LAYER,
         TRACKING_LABEL_LAYER,
         REGION_LABEL_LAYER,
     ].forEach((id) => moveLayerIfPresent(map, id));
@@ -404,6 +407,7 @@ const ROUTE_PREVIEW_FOCUS_LAYER = 'route-monitoring-preview-focus';
 const TRACKING_SOURCE = 'tracking-overlay-source';
 const TRACKING_LINE_LAYER = 'tracking-overlay-line';
 const TRACKING_POINT_LAYER = 'tracking-overlay-point';
+const TRACKING_ACTIVE_RING_LAYER = 'tracking-overlay-active-ring';
 const TRACKING_LABEL_LAYER = 'tracking-overlay-label';
 const ROAD_PRESET_SOURCE = 'road-preset-source';
 const ROAD_PRESET_LINE_LAYER = 'road-preset-line';
@@ -1295,6 +1299,7 @@ function syncRoutePreviewLayers(
 
 function buildTrackingOverlayGeoJson(
     trackingOverlay: ForensicTrackingResult | null,
+    activeCctvId: string | null,
     lookupItems: CctvItem[],
 ) {
     if (!trackingOverlay) {
@@ -1356,6 +1361,7 @@ function buildTrackingOverlayGeoJson(
                 isFocus: 1,
                 hasEta: 0,
                 isOrigin: 1,
+                isActive: originItem.id === activeCctvId ? 1 : 0,
                 label: 'S',
             },
             geometry: {
@@ -1380,6 +1386,7 @@ function buildTrackingOverlayGeoJson(
                 isFocus: hit.is_route_focus ? 1 : 0,
                 hasEta: typeof hit.expected_eta_minutes === 'number' ? 1 : 0,
                 isOrigin: 0,
+                isActive: item.id === activeCctvId ? 1 : 0,
                 label: String(sequence + 1),
             },
             geometry: {
@@ -1413,7 +1420,7 @@ function ensureTrackingOverlayLayers(map: import('maplibre-gl').Map) {
     if (!map.getSource(TRACKING_SOURCE)) {
         map.addSource(TRACKING_SOURCE, {
             type: 'geojson',
-            data: buildTrackingOverlayGeoJson(null, []),
+            data: buildTrackingOverlayGeoJson(null, null, []),
         });
     }
 
@@ -1466,6 +1473,26 @@ function ensureTrackingOverlayLayers(map: import('maplibre-gl').Map) {
         });
     }
 
+    if (!map.getLayer(TRACKING_ACTIVE_RING_LAYER)) {
+        map.addLayer({
+            id: TRACKING_ACTIVE_RING_LAYER,
+            type: 'circle',
+            source: TRACKING_SOURCE,
+            filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'isActive'], 1]],
+            paint: {
+                'circle-radius': [
+                    'case',
+                    ['==', ['get', 'isOrigin'], 1], 22,
+                    19,
+                ],
+                'circle-color': 'rgba(255,255,255,0.02)',
+                'circle-stroke-color': '#38bdf8',
+                'circle-stroke-width': 3.2,
+                'circle-opacity': 0.98,
+            },
+        });
+    }
+
     if (!map.getLayer(TRACKING_LABEL_LAYER) && map.getStyle()?.glyphs) {
         map.addLayer({
             id: TRACKING_LABEL_LAYER,
@@ -1494,11 +1521,12 @@ function ensureTrackingOverlayLayers(map: import('maplibre-gl').Map) {
 function syncTrackingOverlayLayers(
     map: import('maplibre-gl').Map,
     trackingOverlay: ForensicTrackingResult | null,
+    activeCctvId: string | null,
     lookupItems: CctvItem[],
 ) {
     ensureTrackingOverlayLayers(map);
     const source = map.getSource(TRACKING_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
-    source?.setData(buildTrackingOverlayGeoJson(trackingOverlay, lookupItems) as any);
+    source?.setData(buildTrackingOverlayGeoJson(trackingOverlay, activeCctvId, lookupItems) as any);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1507,7 +1535,9 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     roadOverlayItems = [],
     roadPreset = 'all',
     trackingOverlay = null,
+    trackingActiveCctvId = null,
     trackingLookupItems = items,
+    onTrackingActiveCctvChange,
     onRoadPresetSelect,
     routeMonitoringPlan = null,
     routePreviewPlan = null,
@@ -1532,6 +1562,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     const itemsRef = useRef<CctvItem[]>(items);
     const roadOverlayItemsRef = useRef<CctvItem[]>(roadOverlayItems);
     const trackingLookupItemsRef = useRef<CctvItem[]>(trackingLookupItems);
+    const onTrackingActiveCctvChangeRef = useRef(onTrackingActiveCctvChange);
     const onSelectRef = useRef(onSelect);
     const onRoadPresetSelectRef = useRef(onRoadPresetSelect);
 
@@ -1564,9 +1595,10 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         itemsRef.current = items;
         roadOverlayItemsRef.current = roadOverlayItems;
         trackingLookupItemsRef.current = trackingLookupItems;
+        onTrackingActiveCctvChangeRef.current = onTrackingActiveCctvChange;
         onSelectRef.current = onSelect;
         onRoadPresetSelectRef.current = onRoadPresetSelect;
-    }, [items, onRoadPresetSelect, onSelect, roadOverlayItems, trackingLookupItems]);
+    }, [items, onRoadPresetSelect, onSelect, roadOverlayItems, trackingLookupItems, onTrackingActiveCctvChange]);
 
     useEffect(() => {
         mapStyleRef.current = mapStyle;
@@ -1693,6 +1725,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     const handleTrackingOverlayPick = useCallback((event: any) => {
         const pickedId = event.features?.[0]?.properties?.id;
         const picked = trackingLookupItemsRef.current.find((item) => item.id === pickedId);
+        onTrackingActiveCctvChangeRef.current?.(pickedId ?? null);
         if (picked) {
             onSelectRef.current(picked);
         }
@@ -1773,7 +1806,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         syncCctvLayers(map, items);
         syncRouteMonitoringLayers(map, routeMonitoringPlan, items);
         syncRoutePreviewLayers(map, routePreviewPlan, items);
-        syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItems);
+        syncTrackingOverlayLayers(map, trackingOverlay, trackingActiveCctvId, trackingLookupItems);
         bindCctvInteractions(map);
         bindRoadPresetInteractions(map);
         bindTrackingOverlayInteractions(map);
@@ -1788,6 +1821,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         roadPreset,
         routeMonitoringPlan,
         routePreviewPlan,
+        trackingActiveCctvId,
         trackingLookupItems,
         trackingOverlay,
         syncDomMarkers,
@@ -1925,7 +1959,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                 syncCctvLayers(map, itemsRef.current);
                 syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
                 syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
-                syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItemsRef.current);
+                syncTrackingOverlayLayers(map, trackingOverlay, trackingActiveCctvId, trackingLookupItemsRef.current);
                 bindCctvInteractions(map);
                 bindDroneInteractions(map);
                 bindRoadPresetInteractions(map);
@@ -2026,7 +2060,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
             syncCctvLayers(map, itemsRef.current);
             syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
             syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
-            syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItemsRef.current);
+            syncTrackingOverlayLayers(map, trackingOverlay, trackingActiveCctvId, trackingLookupItemsRef.current);
             bindCctvInteractions(map);
             bindDroneInteractions(map);
             bindRoadPresetInteractions(map);
@@ -2108,6 +2142,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         roadPreset,
         routeMonitoringPlan,
         routePreviewPlan,
+        trackingActiveCctvId,
         trackingOverlay,
         syncDomMarkers,
         syncDroneVisibility,
