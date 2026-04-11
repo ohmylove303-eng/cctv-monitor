@@ -1588,6 +1588,81 @@ export default function ForensicModal({
                                 )}
                             </div>
 
+                            {trackingResult.origin_cctv_id && (
+                                <div
+                                    onMouseEnter={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
+                                    onFocus={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
+                                    onClick={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
+                                    tabIndex={0}
+                                    style={{
+                                        padding: '12px 14px',
+                                        background: trackingActiveCctvId === trackingResult.origin_cctv_id
+                                            ? 'rgba(251,191,36,0.10)'
+                                            : 'rgba(255,255,255,0.03)',
+                                        border: trackingActiveCctvId === trackingResult.origin_cctv_id
+                                            ? '1px solid rgba(251,191,36,0.28)'
+                                            : '1px solid rgba(255,255,255,0.07)',
+                                        borderRadius: 10,
+                                        boxShadow: trackingActiveCctvId === trackingResult.origin_cctv_id
+                                            ? '0 0 0 1px rgba(251,191,36,0.10), 0 12px 24px rgba(180,83,9,0.10)'
+                                            : 'none',
+                                        outline: 'none',
+                                        cursor: 'pointer',
+                                        transition: 'border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease',
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <span
+                                                    style={{
+                                                        padding: '2px 6px',
+                                                        borderRadius: 999,
+                                                        background: 'rgba(251,191,36,0.14)',
+                                                        border: '1px solid rgba(251,191,36,0.25)',
+                                                        color: '#fde68a',
+                                                        fontSize: 9,
+                                                        fontWeight: 800,
+                                                    }}
+                                                >
+                                                    S
+                                                </span>
+                                                <div style={{ fontSize: 12, fontWeight: 700, color: '#fef3c7' }}>
+                                                    {trackingResult.origin_cctv_name || cctv.name}
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+                                                출발 기준 CCTV
+                                                {trackingResult.origin_timestamp
+                                                    ? ` · ${new Date(trackingResult.origin_timestamp).toLocaleString('ko-KR')}`
+                                                    : ''}
+                                            </div>
+                                        </div>
+                                        {onLocate && (
+                                            <button
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null);
+                                                    onLocate(trackingResult.origin_cctv_id!);
+                                                }}
+                                                style={{
+                                                    padding: '6px 10px',
+                                                    borderRadius: 6,
+                                                    border: '1px solid rgba(251,191,36,0.25)',
+                                                    background: 'rgba(251,191,36,0.08)',
+                                                    color: '#fde68a',
+                                                    fontSize: 11,
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                시작점 보기
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {trackingResult.hits.length === 0 ? (
                                 <div
                                     style={{
