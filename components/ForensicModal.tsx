@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
     CctvItem,
+    ForensicOcrRuntimeState,
     ForensicRouteContext,
     ForensicResult,
     ForensicTrackCamera,
@@ -42,6 +43,7 @@ interface Props {
     backendEnabled?: boolean;
     backendProvider?: 'configured' | 'fallback' | 'missing';
     backendMessage?: string | null;
+    backendOcr?: ForensicOcrRuntimeState | null;
     onLocate?: (cctvId: string) => void;
     onTrackingResultChange?: (result: ForensicTrackingResult | null) => void;
     onClose: () => void;
@@ -513,6 +515,7 @@ export default function ForensicModal({
     backendEnabled = false,
     backendProvider = 'missing',
     backendMessage,
+    backendOcr = null,
     onLocate,
     onTrackingResultChange,
     onClose,
@@ -888,6 +891,47 @@ export default function ForensicModal({
         : backendProvider === 'fallback'
             ? '데모 fallback'
             : '실전 백엔드';
+    const ocrRuntimeNote = !backendEnabled
+        ? {
+            color: '#fca5a5',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.22)',
+            text: '번호판 OCR 상태를 확인하려면 먼저 분석 백엔드 연결이 필요합니다.',
+        }
+        : !backendOcr?.configured
+            ? {
+                color: '#fcd34d',
+                background: 'rgba(245,158,11,0.08)',
+                border: '1px solid rgba(245,158,11,0.22)',
+                text: '현재 번호판 OCR은 미설정 상태입니다. YOLO 차량 검출과 이동 추적은 가능하지만 번호판 확인은 제한됩니다.',
+            }
+            : backendOcr.error
+                ? {
+                    color: '#fca5a5',
+                    background: 'rgba(239,68,68,0.08)',
+                    border: '1px solid rgba(239,68,68,0.22)',
+                    text: `번호판 OCR 초기화에 실패했습니다. ${backendOcr.error}`,
+                }
+                : backendOcr.status === 'ready' || backendOcr.ready
+                    ? {
+                        color: '#bbf7d0',
+                        background: 'rgba(16,185,129,0.08)',
+                        border: '1px solid rgba(16,185,129,0.22)',
+                        text: `번호판 OCR 준비 완료${backendOcr.engine ? ` (${backendOcr.engine})` : ''}. 2차 정밀 확인 또는 추적 시 OCR 후보를 함께 평가합니다.`,
+                    }
+                    : backendOcr.status === 'lazy_not_initialized'
+                        ? {
+                            color: '#bfdbfe',
+                            background: 'rgba(59,130,246,0.08)',
+                            border: '1px solid rgba(59,130,246,0.22)',
+                            text: `번호판 OCR은 준비 대기 상태입니다${backendOcr.engine ? ` (${backendOcr.engine})` : ''}. 실패가 아니라 첫 정밀 OCR 요청이 들어오면 그때 로드됩니다.`,
+                        }
+                        : {
+                            color: '#cbd5e1',
+                            background: 'rgba(148,163,184,0.08)',
+                            border: '1px solid rgba(148,163,184,0.22)',
+                            text: `번호판 OCR 상태 확인 중${backendOcr?.engine ? ` (${backendOcr.engine})` : ''}. 현재 차량 검출 흐름은 정상입니다.`,
+                        };
 
     return (
         <div
@@ -1040,6 +1084,21 @@ export default function ForensicModal({
                             결과는 UI 흐름 검증용이며 실전 포렌식 판정으로 간주하면 안 됩니다.
                         </div>
                     )}
+
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            padding: '10px 12px',
+                            background: ocrRuntimeNote.background,
+                            border: ocrRuntimeNote.border,
+                            borderRadius: 8,
+                            fontSize: 11,
+                            color: ocrRuntimeNote.color,
+                            lineHeight: 1.7,
+                        }}
+                    >
+                        {ocrRuntimeNote.text}
+                    </div>
 
                     {routeFocusSummary && (
                         <div

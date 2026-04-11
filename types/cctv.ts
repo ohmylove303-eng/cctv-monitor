@@ -148,10 +148,22 @@ export interface ForensicTrackingResult {
     message?: string;
 }
 
+export interface ForensicOcrRuntimeState {
+    engine?: string | null;
+    configured?: boolean;
+    attempted?: boolean;
+    ready?: boolean;
+    lazy_load?: boolean;
+    status?: string | null;
+    error?: string | null;
+}
+
 export interface ForensicStatusResponse {
     enabled: boolean;
     provider: 'configured' | 'fallback' | 'missing';
     reachable?: boolean;
     httpStatus?: number;
+    mode?: string | null;
+    ocr?: ForensicOcrRuntimeState | null;
     message: string;
 }

@@ -10,6 +10,7 @@ import ForensicModal from '@/components/ForensicModal';
 
 import {
     CctvItem,
+    ForensicStatusResponse,
     ForensicTrackingResult,
     LayerVisibility,
     RegionFilter,
@@ -130,6 +131,8 @@ export default function DashboardPage() {
     const [forensicStatus, setForensicStatus] = useState({
         enabled: false,
         provider: 'missing' as 'configured' | 'fallback' | 'missing',
+        mode: null as string | null,
+        ocr: null as ForensicStatusResponse['ocr'] | null,
         message: 'ITS 차량 분석 서버 상태 확인 전',
     });
 
@@ -210,6 +213,8 @@ export default function DashboardPage() {
                 setForensicStatus({
                     enabled: status.enabled,
                     provider: status.provider,
+                    mode: status.mode ?? null,
+                    ocr: status.ocr ?? null,
                     message: status.message,
                 });
             })
@@ -218,6 +223,8 @@ export default function DashboardPage() {
                 setForensicStatus({
                     enabled: false,
                     provider: 'missing',
+                    mode: null,
+                    ocr: null,
                     message: error instanceof Error
                         ? error.message
                         : 'ITS 차량 분석 서버 상태를 확인할 수 없습니다.',
@@ -886,6 +893,7 @@ export default function DashboardPage() {
                     backendEnabled={forensicStatus.enabled}
                     backendProvider={forensicStatus.provider}
                     backendMessage={forensicStatus.message}
+                    backendOcr={forensicStatus.ocr}
                     onTrackingResultChange={setTrackingOverlay}
                     onLocate={handleLocate}
                     onClose={() => setShowForensic(false)}
