@@ -1484,6 +1484,11 @@ export default function ForensicModal({
                                 <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
                                     추적 ID {trackingResult.tracking_id} · 검색 카메라 {trackingResult.searched_cameras}대
                                 </div>
+                                {trackingResult.origin_timestamp && (
+                                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+                                        기준 시각 {new Date(trackingResult.origin_timestamp).toLocaleString('ko-KR')}
+                                    </div>
+                                )}
                             </div>
 
                             {trackingResult.hits.length === 0 ? (
@@ -1518,6 +1523,40 @@ export default function ForensicModal({
                                                 <div style={{ fontSize: 10, color: '#64748b' }}>
                                                     {hit.region} · {hit.address || '주소 미상'}
                                                 </div>
+                                                {(hit.is_route_focus || hit.travel_order !== undefined) && (
+                                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                                                        {hit.is_route_focus && (
+                                                            <span
+                                                                style={{
+                                                                    padding: '2px 6px',
+                                                                    borderRadius: 999,
+                                                                    background: 'rgba(34,197,94,0.14)',
+                                                                    border: '1px solid rgba(34,197,94,0.25)',
+                                                                    color: '#86efac',
+                                                                    fontSize: 9,
+                                                                    fontWeight: 800,
+                                                                }}
+                                                            >
+                                                                집중군
+                                                            </span>
+                                                        )}
+                                                        {hit.travel_order !== undefined && (
+                                                            <span
+                                                                style={{
+                                                                    padding: '2px 6px',
+                                                                    borderRadius: 999,
+                                                                    background: 'rgba(56,189,248,0.14)',
+                                                                    border: '1px solid rgba(56,189,248,0.25)',
+                                                                    color: '#7dd3fc',
+                                                                    fontSize: 9,
+                                                                    fontWeight: 800,
+                                                                }}
+                                                            >
+                                                                순서 {hit.travel_order + 1}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={{ textAlign: 'right' }}>
                                                 <div style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8' }}>
