@@ -120,6 +120,7 @@ function summarizeRouteSuggestionPreview<T extends { id: string }>(
 export default function DashboardPage() {
     const mapRef = useRef<CctvMapHandle>(null);
     const routeScenarioHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastAutoFitSignatureRef = useRef<string | null>(null);
 
     // ─── 데이터 상태 (빈 배열로 시작, API에서 전적으로 구성) ──────────────────────────────────
     const [allCctv, setAllCctv] = useState<CctvItem[]>([]);
@@ -447,17 +448,55 @@ export default function DashboardPage() {
         )
         , [displayCctv, regionFilter, visible.traffic]);
 
+    const autoFitTargetItems = useMemo(() => {
+        if (routeMonitoringPlan) {
+            const segmentItems = visibleMapItems.filter((item) => routeMonitoringPlan.prioritizedIds.includes(item.id));
+            if (segmentItems.length >= 2) {
+                return segmentItems;
+            }
+        }
+
+        if (roadPreset !== 'all') {
+            return displayCctv.filter((item) =>
+                regionFilter[item.region]
+                && matchesRoadPreset(item, roadPreset)
+                && hasLiveTrafficStream(item)
+            );
+        }
+
+        if (itsRoadOnly) {
+            return visibleMapItems;
+        }
+
+        return [];
+    }, [displayCctv, itsRoadOnly, regionFilter, roadPreset, routeMonitoringPlan, visibleMapItems]);
+
+    const autoFitSignature = useMemo(() => {
+        if ((roadPreset === 'all' && !itsRoadOnly) || autoFitTargetItems.length === 0) {
+            return null;
+        }
+
+        const ids = autoFitTargetItems.map((item) => item.id).join('|');
+        const routeSignature = routeMonitoringPlan
+            ? routeMonitoringPlan.prioritizedIds.join('|')
+            : 'no-route';
+
+        return `${roadPreset}:${itsRoadOnly ? 'its' : 'all'}:${routeSignature}:${ids}`;
+    }, [autoFitTargetItems, itsRoadOnly, roadPreset, routeMonitoringPlan]);
+
     useEffect(() => {
-        if ((roadPreset === 'all' && !itsRoadOnly) || visibleMapItems.length === 0) {
+        if (!autoFitSignature || autoFitTargetItems.length === 0) {
+            lastAutoFitSignatureRef.current = null;
             return;
         }
 
-        const segmentItems = routeMonitoringPlan
-            ? visibleMapItems.filter((item) => routeMonitoringPlan.prioritizedIds.includes(item.id))
-            : [];
+        if (lastAutoFitSignatureRef.current === autoFitSignature) {
+            return;
+        }
 
-        mapRef.current?.fitToItems(segmentItems.length >= 2 ? segmentItems : visibleMapItems);
-    }, [itsRoadOnly, roadPreset, routeMonitoringPlan, visibleMapItems]);
+        lastAutoFitSignatureRef.current = autoFitSignature;
+        mapRef.current?.fitToItems(autoFitTargetItems);
+    }, [autoFitSignature, autoFitTargetItems]);
 
     const handleItsRoadOnlyChange = (next: boolean) => {
         setItsRoadOnly(next);
