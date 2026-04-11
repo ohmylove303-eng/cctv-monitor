@@ -29,6 +29,25 @@ PLATE_REGEXES = [
     re.compile(r"\d{2,3}[가-힣]\d{4}"),
     re.compile(r"[가-힣]{1,2}\d{2,3}[가-힣]\d{4}"),
 ]
+REGION_PREFIXES = (
+    "서울",
+    "부산",
+    "대구",
+    "인천",
+    "광주",
+    "대전",
+    "울산",
+    "세종",
+    "경기",
+    "강원",
+    "충북",
+    "충남",
+    "전북",
+    "전남",
+    "경북",
+    "경남",
+    "제주",
+)
 OcrCrop = tuple[np.ndarray, float]
 OcrObservation = tuple[str, float]
 
@@ -486,7 +505,22 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
         ),
     )
 
-    return ranked[:5]
+    ranked_set = set(ranked)
+    filtered: list[str] = []
+    for candidate in ranked:
+        suppress_candidate = False
+        for prefix in REGION_PREFIXES:
+            if not candidate.startswith(prefix):
+                continue
+            suffix = candidate[len(prefix):]
+            if re.fullmatch(r"\d{2,3}[가-힣]\d{4}", suffix) and suffix in ranked_set:
+                # Keep the simpler observed suffix only when it was also seen explicitly.
+                suppress_candidate = True
+                break
+        if not suppress_candidate:
+            filtered.append(candidate)
+
+    return filtered[:5]
 
 
 def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None, analysis_mode: str = "verify") -> str:
