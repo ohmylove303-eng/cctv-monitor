@@ -29,6 +29,8 @@ PLATE_REGEXES = [
     re.compile(r"\d{2,3}[가-힣]\d{4}"),
     re.compile(r"[가-힣]{1,2}\d{2,3}[가-힣]\d{4}"),
 ]
+OcrCrop = tuple[np.ndarray, float]
+OcrObservation = tuple[str, float]
 
 
 def sha256_text(value: str) -> str:
@@ -274,7 +276,7 @@ def prioritize_frames(frames: list[np.ndarray], limit: int | None = None) -> lis
     return ranked[:limit]
 
 
-def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_per_frame: int = 2) -> list[np.ndarray]:
+def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_per_frame: int = 2) -> list[OcrCrop]:
     height, width = frame.shape[:2]
     ranked_boxes = sorted(
         boxes,
@@ -282,9 +284,9 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
         reverse=True,
     )
 
-    crops: list[np.ndarray] = []
+    crops: list[OcrCrop] = []
 
-    def append_crop(left: int, top: int, right: int, bottom: int) -> None:
+    def append_crop(left: int, top: int, right: int, bottom: int, weight: float) -> None:
         left = max(0, min(left, width - 1))
         right = max(0, min(right, width))
         top = max(0, min(top, height - 1))
@@ -293,7 +295,7 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
             return
         crop = frame[top:bottom, left:right]
         if crop.size > 0:
-            crops.append(crop)
+            crops.append((crop, weight))
 
     for box in ranked_boxes[:max_crops_per_frame]:
         x1, y1, x2, y2 = [int(round(value)) for value in box]
@@ -317,11 +319,11 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
         full_top = max(0, y1 - pad_y)
         full_right = min(width, x2 + pad_x)
         full_bottom = min(height, y2 + pad_y)
-        append_crop(full_left, full_top, full_right, full_bottom)
+        append_crop(full_left, full_top, full_right, full_bottom, 0.85)
 
         plate_band_top = y1 + int(box_height * 0.4)
         plate_band_bottom = y2 + pad_y
-        append_crop(full_left, plate_band_top, full_right, plate_band_bottom)
+        append_crop(full_left, plate_band_top, full_right, plate_band_bottom, 1.0)
 
         # Add a tighter lower-center crop where front/rear plates are most likely to appear.
         focus_half_width = max(18, int(box_width * 0.34))
@@ -329,19 +331,19 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
         focus_right = center_x + focus_half_width + max(2, pad_x // 2)
         focus_top = y1 + int(box_height * 0.48)
         focus_bottom = y1 + int(box_height * 0.86) + max(2, pad_y // 2)
-        append_crop(focus_left, focus_top, focus_right, focus_bottom)
+        append_crop(focus_left, focus_top, focus_right, focus_bottom, 1.15)
 
     return crops
 
 
-def run_yolo_vehicle_scan(frames: list[np.ndarray], settings: Settings) -> tuple[int, list[str], list[np.ndarray]]:
+def run_yolo_vehicle_scan(frames: list[np.ndarray], settings: Settings) -> tuple[int, list[str], list[OcrCrop]]:
     model = get_yolo_model()
     if model is None or not frames:
         return 0, [], []
 
     detections = 0
     labels: list[str] = []
-    ocr_inputs: list[np.ndarray] = []
+    ocr_inputs: list[OcrCrop] = []
     prioritized_frames = prioritize_frames(frames, min(len(frames), 4))
     for frame in prioritized_frames:
         results = model.predict(frame, verbose=False, conf=settings.yolo_confidence)
@@ -395,6 +397,39 @@ def iter_plate_search_texts(texts: list[str]) -> list[str]:
     return search_texts
 
 
+def iter_plate_search_observations(observations: list[OcrObservation]) -> list[OcrObservation]:
+    normalized = [
+        (normalize_ocr_text(text), weight)
+        for text, weight in observations
+        if normalize_ocr_text(text)
+    ]
+    search_texts: list[OcrObservation] = []
+    best_weights: dict[str, float] = {}
+
+    def add(value: str, weight: float) -> None:
+        if not value:
+            return
+        current = best_weights.get(value)
+        if current is None or weight > current:
+            best_weights[value] = weight
+
+    for index, (text, weight) in enumerate(normalized):
+        add(text, weight)
+        for window_size in (2, 3):
+            window = normalized[index:index + window_size]
+            if not window:
+                continue
+            combined = "".join(item[0] for item in window)
+            if len(combined) <= 12:
+                average_weight = sum(item[1] for item in window) / len(window)
+                add(combined, average_weight)
+
+    for text, weight in best_weights.items():
+        search_texts.append((text, weight))
+
+    return search_texts
+
+
 def extract_plate_candidates(texts: list[str]) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
@@ -409,12 +444,12 @@ def extract_plate_candidates(texts: list[str]) -> list[str]:
     return found[:5]
 
 
-def rank_plate_candidates(frame_text_batches: list[list[str]]) -> list[str]:
-    if not frame_text_batches:
+def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]]) -> list[str]:
+    if not frame_observation_batches:
         return []
 
     frame_support: dict[str, int] = {}
-    text_occurrences: dict[str, int] = {}
+    weighted_support: dict[str, float] = {}
     candidate_order: dict[str, int] = {}
     order = 0
 
@@ -425,24 +460,26 @@ def rank_plate_candidates(frame_text_batches: list[list[str]]) -> list[str]:
             return 1
         return 0
 
-    for texts in frame_text_batches:
+    for observations in frame_observation_batches:
+        texts = [text for text, _ in observations]
         frame_candidates = extract_plate_candidates(texts)
+        search_observations = iter_plate_search_observations(observations)
         for candidate in frame_candidates:
             frame_support[candidate] = frame_support.get(candidate, 0) + 1
+            candidate_weight = max(
+                (weight for search_text, weight in search_observations if search_text == candidate),
+                default=0.0,
+            )
+            weighted_support[candidate] = weighted_support.get(candidate, 0.0) + candidate_weight
             if candidate not in candidate_order:
                 candidate_order[candidate] = order
                 order += 1
-
-        for search_text in iter_plate_search_texts(texts):
-            for candidate in frame_candidates:
-                if candidate in search_text:
-                    text_occurrences[candidate] = text_occurrences.get(candidate, 0) + 1
 
     ranked = sorted(
         frame_support.keys(),
         key=lambda candidate: (
             -frame_support.get(candidate, 0),
-            -text_occurrences.get(candidate, 0),
+            -weighted_support.get(candidate, 0.0),
             -candidate_shape_score(candidate),
             len(candidate),
             candidate_order.get(candidate, 999),
@@ -482,7 +519,7 @@ def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str |
     return "ultralytics-yolo / frame-sampling / no-live-ocr"
 
 
-def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
+def collect_easyocr_observations(reader: Any, frame: np.ndarray, source_weight: float = 1.0) -> list[OcrObservation]:
     variants: list[Any] = [frame]
     allowlist = "0123456789가나다라마바사아자차카타파하허호배국합서울부산대구인천광주대전울산세종경기강원충북충남전북전남경북경남제주"
 
@@ -517,7 +554,7 @@ def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
     except Exception:
         pass
 
-    texts: list[str] = []
+    texts: list[OcrObservation] = []
 
     for variant in variants:
         try:
@@ -538,13 +575,13 @@ def collect_easyocr_texts(reader: Any, frame: np.ndarray) -> list[str]:
             confidence = float(entry[2]) if len(entry) > 2 and isinstance(entry[2], (int, float)) else 0.0
 
             if text and confidence >= 0.15:
-                texts.append(text)
+                texts.append((text, confidence * source_weight))
 
     return texts
 
 
 def run_plate_ocr(
-    frames: list[np.ndarray],
+    frames: list[np.ndarray] | list[OcrCrop],
     request: AnalyzeRequest,
     settings: Settings,
 ) -> tuple[list[str], str, str | None]:
@@ -567,13 +604,14 @@ def run_plate_ocr(
     if reader is None:
         return [], "ocr_unavailable", settings.ocr_engine
 
-    ocr_text_batches: list[list[str]] = []
-    for frame in frames[: settings.ocr_frame_limit]:
-        texts = collect_easyocr_texts(reader, frame)
-        if texts:
-            ocr_text_batches.append(texts)
+    ocr_observation_batches: list[list[OcrObservation]] = []
+    for frame_input in frames[: settings.ocr_frame_limit]:
+        frame, source_weight = frame_input if isinstance(frame_input, tuple) else (frame_input, 1.0)
+        observations = collect_easyocr_observations(reader, frame, source_weight)
+        if observations:
+            ocr_observation_batches.append(observations)
 
-    candidates = rank_plate_candidates(ocr_text_batches)
+    candidates = rank_plate_candidates(ocr_observation_batches)
     return candidates, "ocr_active", "easyocr"
 
 
