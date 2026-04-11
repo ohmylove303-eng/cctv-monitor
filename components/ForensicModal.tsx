@@ -290,6 +290,45 @@ function getPlateSignalValue(result: Pick<ForensicResult, 'ocr_status' | 'plate_
     return 'OCR 결과 없음';
 }
 
+function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_diagnostics' | 'plate_candidates'>) {
+    if (result.ocr_status !== 'ocr_active' || !result.ocr_diagnostics) {
+        return null;
+    }
+
+    const diagnostics = result.ocr_diagnostics;
+    const hasCandidate = (result.plate_candidates?.length ?? 0) > 0;
+
+    if (hasCandidate && diagnostics.top_candidate_support >= 2 && diagnostics.top_candidate_weight >= 0.9) {
+        return {
+            label: '권고',
+            value: '상위 후보가 반복 관측됐습니다. 동일 도로축 CCTV 추적으로 바로 넘겨도 됩니다.',
+            tone: 'success' as const,
+        };
+    }
+
+    if (hasCandidate && diagnostics.top_candidate_support >= 1 && diagnostics.final_candidate_count <= 2) {
+        return {
+            label: '권고',
+            value: '후보는 확보됐지만 지지가 약합니다. 인접 CCTV 1~2곳에서 재확인 후 추적을 이어가는 편이 안전합니다.',
+            tone: 'info' as const,
+        };
+    }
+
+    if (!hasCandidate && diagnostics.observation_count > 0) {
+        return {
+            label: '권고',
+            value: 'OCR 관측은 있었지만 번호판 후보가 남지 않았습니다. 더 근거리 CCTV나 선명한 프레임으로 재시도하는 것이 좋습니다.',
+            tone: 'warning' as const,
+        };
+    }
+
+    return {
+        label: '권고',
+        value: '번호판 단서가 약합니다. 현재 결과는 참고용으로 보고 색상·차종·도로축 중심으로 먼저 좁히는 편이 좋습니다.',
+        tone: 'warning' as const,
+    };
+}
+
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
     const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
         ? raw.quality_report as Record<string, unknown>
@@ -629,6 +668,7 @@ export default function ForensicModal({
     }, [cameraQualityTelemetry, routeContext, trackScope]);
     const qualityBoostedCount = bundleScope.filter((camera) => getCameraQualityScore(cameraQualityTelemetry[camera.id]) > 0).length;
     const currentStreamUrl = cctv.hlsUrl || cctv.streamUrl || '';
+    const ocrActionGuidance = analysisResult ? getOcrActionGuidance(analysisResult) : null;
     const effectiveTargetPlate = targetPlate.trim()
         || analysisResult?.target_plate
         || bundleAnalysisSummary?.suggestedPlate
@@ -1538,6 +1578,37 @@ export default function ForensicModal({
                                     {analysisResult.ocr_diagnostics.top_candidate_reason
                                         ? `\n상위 후보 설명: ${analysisResult.ocr_diagnostics.top_candidate_reason}`
                                         : ''}
+                                </div>
+                            )}
+
+                            {ocrActionGuidance && (
+                                <div
+                                    style={{
+                                        padding: '9px 12px',
+                                        background:
+                                            ocrActionGuidance.tone === 'success'
+                                                ? 'rgba(34,197,94,0.08)'
+                                                : ocrActionGuidance.tone === 'info'
+                                                    ? 'rgba(14,165,233,0.08)'
+                                                    : 'rgba(245,158,11,0.08)',
+                                        border:
+                                            ocrActionGuidance.tone === 'success'
+                                                ? '1px solid rgba(34,197,94,0.22)'
+                                                : ocrActionGuidance.tone === 'info'
+                                                    ? '1px solid rgba(14,165,233,0.22)'
+                                                    : '1px solid rgba(245,158,11,0.22)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        lineHeight: 1.7,
+                                        color:
+                                            ocrActionGuidance.tone === 'success'
+                                                ? '#86efac'
+                                                : ocrActionGuidance.tone === 'info'
+                                                    ? '#7dd3fc'
+                                                    : '#fcd34d',
+                                    }}
+                                >
+                                    {ocrActionGuidance.label}: {ocrActionGuidance.value}
                                 </div>
                             )}
                         </div>
