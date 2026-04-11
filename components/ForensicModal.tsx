@@ -669,6 +669,9 @@ export default function ForensicModal({
     const qualityBoostedCount = bundleScope.filter((camera) => getCameraQualityScore(cameraQualityTelemetry[camera.id]) > 0).length;
     const currentStreamUrl = cctv.hlsUrl || cctv.streamUrl || '';
     const ocrActionGuidance = analysisResult ? getOcrActionGuidance(analysisResult) : null;
+    const rankedPlateCandidates = analysisResult?.ocr_status === 'ocr_active'
+        ? analysisResult.plate_candidates ?? []
+        : [];
     const effectiveTargetPlate = targetPlate.trim()
         || analysisResult?.target_plate
         || bundleAnalysisSummary?.suggestedPlate
@@ -1541,6 +1544,80 @@ export default function ForensicModal({
                                     </div>
                                 ))}
                             </div>
+
+                            {rankedPlateCandidates.length > 0 && (
+                                <div
+                                    style={{
+                                        padding: '10px 12px',
+                                        background: 'rgba(250,204,21,0.06)',
+                                        border: '1px solid rgba(250,204,21,0.16)',
+                                        borderRadius: 8,
+                                    }}
+                                >
+                                    <div style={{ fontSize: 10, color: '#fde68a', fontWeight: 800, marginBottom: 8 }}>
+                                        OCR 후보 우선순위
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                        {rankedPlateCandidates.map((candidate, index) => {
+                                            const isPrimary = index === 0;
+                                            return (
+                                                <div
+                                                    key={`${candidate}-${index}`}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        padding: isPrimary ? '7px 10px' : '6px 9px',
+                                                        borderRadius: 999,
+                                                        background: isPrimary
+                                                            ? 'rgba(250,204,21,0.14)'
+                                                            : 'rgba(255,255,255,0.04)',
+                                                        border: isPrimary
+                                                            ? '1px solid rgba(250,204,21,0.28)'
+                                                            : '1px solid rgba(255,255,255,0.10)',
+                                                        boxShadow: isPrimary
+                                                            ? '0 0 0 1px rgba(250,204,21,0.08), 0 10px 20px rgba(161,98,7,0.10)'
+                                                            : 'none',
+                                                    }}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            padding: '2px 6px',
+                                                            borderRadius: 999,
+                                                            background: isPrimary
+                                                                ? 'rgba(255,255,255,0.14)'
+                                                                : 'rgba(56,189,248,0.12)',
+                                                            border: isPrimary
+                                                                ? '1px solid rgba(255,255,255,0.18)'
+                                                                : '1px solid rgba(56,189,248,0.18)',
+                                                            color: isPrimary ? '#fef3c7' : '#7dd3fc',
+                                                            fontSize: 9,
+                                                            fontWeight: 800,
+                                                        }}
+                                                    >
+                                                        {isPrimary ? '1순위' : `${index + 1}순위`}
+                                                    </span>
+                                                    <span
+                                                        style={{
+                                                            fontSize: isPrimary ? 12 : 11,
+                                                            fontWeight: isPrimary ? 800 : 700,
+                                                            color: isPrimary ? '#fef3c7' : '#e2e8f0',
+                                                            letterSpacing: '0.02em',
+                                                        }}
+                                                    >
+                                                        {candidate}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    {analysisResult.ocr_diagnostics?.top_candidate_reason && (
+                                        <div style={{ fontSize: 10, color: '#fde68a', marginTop: 8, lineHeight: 1.6 }}>
+                                            1순위 판단 근거: {analysisResult.ocr_diagnostics.top_candidate_reason}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div
                                 style={{
