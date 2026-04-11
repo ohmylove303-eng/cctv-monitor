@@ -604,6 +604,8 @@ export default function ForensicModal({
         () => loadCameraQualityTelemetry()
     );
     const runIdRef = useRef(0);
+    const targetPlateEditedRef = useRef(false);
+    const autoFilledTargetPlateRef = useRef<string | null>(null);
     const trackingOriginCardRef = useRef<HTMLDivElement | null>(null);
     const trackingHitCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -672,6 +674,17 @@ export default function ForensicModal({
     const rankedPlateCandidates = analysisResult?.ocr_status === 'ocr_active'
         ? analysisResult.plate_candidates ?? []
         : [];
+    const suggestedTrackingPlate = rankedPlateCandidates[0]
+        || analysisResult?.target_plate
+        || bundleAnalysisSummary?.suggestedPlate
+        || '';
+    const suggestedTrackingPlateLabel = rankedPlateCandidates[0]
+        ? 'OCR 1순위 후보'
+        : analysisResult?.target_plate
+            ? '분석 입력 단서'
+            : bundleAnalysisSummary?.suggestedPlate
+                ? '노선 상위 후보'
+                : '';
     const effectiveTargetPlate = targetPlate.trim()
         || analysisResult?.target_plate
         || bundleAnalysisSummary?.suggestedPlate
@@ -691,6 +704,29 @@ export default function ForensicModal({
         || targetColor !== '미지정'
         || targetVehicleType !== '미지정'
     );
+
+    useEffect(() => {
+        if (phase !== 'analyzed' || !suggestedTrackingPlate) {
+            return;
+        }
+
+        const currentPlate = targetPlate.trim();
+        const lastAutoFilledPlate = autoFilledTargetPlateRef.current;
+        const canReplaceSuggestion = !targetPlateEditedRef.current
+            || (lastAutoFilledPlate !== null && currentPlate === lastAutoFilledPlate);
+
+        if (!canReplaceSuggestion) {
+            return;
+        }
+
+        if (currentPlate === suggestedTrackingPlate) {
+            autoFilledTargetPlateRef.current = suggestedTrackingPlate;
+            return;
+        }
+
+        autoFilledTargetPlateRef.current = suggestedTrackingPlate;
+        setTargetPlate(suggestedTrackingPlate);
+    }, [phase, suggestedTrackingPlate, targetPlate]);
 
     const recordCameraQualityResult = (
         cameraId: string,
@@ -1334,7 +1370,11 @@ export default function ForensicModal({
                             <span style={{ fontSize: 10, color: '#64748b' }}>차량번호</span>
                             <input
                                 value={targetPlate}
-                                onChange={(event) => setTargetPlate(event.target.value)}
+                                onChange={(event) => {
+                                    targetPlateEditedRef.current = true;
+                                    autoFilledTargetPlateRef.current = null;
+                                    setTargetPlate(event.target.value);
+                                }}
                                 placeholder="예: 12가3456 또는 일부 번호"
                                 style={{
                                     width: '100%',
@@ -1346,6 +1386,47 @@ export default function ForensicModal({
                                     fontSize: 12,
                                 }}
                             />
+                            {suggestedTrackingPlate && (
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 8,
+                                        marginTop: 6,
+                                        fontSize: 10,
+                                        color: '#93c5fd',
+                                    }}
+                                >
+                                    <span>
+                                        {suggestedTrackingPlateLabel} {targetPlate.trim() === suggestedTrackingPlate
+                                            ? '자동 반영됨'
+                                            : `추천: ${suggestedTrackingPlate}`}
+                                    </span>
+                                    {targetPlate.trim() !== suggestedTrackingPlate && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                targetPlateEditedRef.current = false;
+                                                autoFilledTargetPlateRef.current = suggestedTrackingPlate;
+                                                setTargetPlate(suggestedTrackingPlate);
+                                            }}
+                                            style={{
+                                                border: '1px solid rgba(56,189,248,0.25)',
+                                                background: 'rgba(56,189,248,0.08)',
+                                                color: '#bae6fd',
+                                                borderRadius: 999,
+                                                padding: '4px 8px',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            적용
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </label>
 
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
