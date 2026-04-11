@@ -549,6 +549,8 @@ export default function ForensicModal({
         () => loadCameraQualityTelemetry()
     );
     const runIdRef = useRef(0);
+    const trackingOriginCardRef = useRef<HTMLDivElement | null>(null);
+    const trackingHitCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     useEffect(() => {
         onTrackingResultChange?.(trackingResult);
@@ -570,6 +572,25 @@ export default function ForensicModal({
             ?? null
         );
     }, [onTrackingActiveCctvChange, trackingActiveCctvId, trackingResult]);
+
+    useEffect(() => {
+        if (phase !== 'tracked' || !trackingResult || !trackingActiveCctvId) {
+            return;
+        }
+
+        const targetElement = trackingResult.origin_cctv_id === trackingActiveCctvId
+            ? trackingOriginCardRef.current
+            : trackingHitCardRefs.current[trackingActiveCctvId] ?? null;
+
+        if (!targetElement) {
+            return;
+        }
+
+        targetElement.scrollIntoView({
+            block: 'nearest',
+            behavior: 'smooth',
+        });
+    }, [phase, trackingActiveCctvId, trackingResult]);
 
     const isCurrentCameraSupported = supportsVehicleForensic(cctv);
     const trackScope = useMemo(
@@ -1590,6 +1611,7 @@ export default function ForensicModal({
 
                             {trackingResult.origin_cctv_id && (
                                 <div
+                                    ref={trackingOriginCardRef}
                                     onMouseEnter={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
                                     onFocus={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
                                     onClick={() => onTrackingActiveCctvChange?.(trackingResult.origin_cctv_id ?? null)}
@@ -1682,6 +1704,13 @@ export default function ForensicModal({
                                     return (
                                     <div
                                         key={hit.id}
+                                        ref={(element) => {
+                                            if (element) {
+                                                trackingHitCardRefs.current[hit.cctv_id] = element;
+                                                return;
+                                            }
+                                            delete trackingHitCardRefs.current[hit.cctv_id];
+                                        }}
                                         onMouseEnter={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
                                         onFocus={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
                                         onClick={() => onTrackingActiveCctvChange?.(hit.cctv_id)}
