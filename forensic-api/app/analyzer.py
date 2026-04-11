@@ -283,6 +283,18 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
     )
 
     crops: list[np.ndarray] = []
+
+    def append_crop(left: int, top: int, right: int, bottom: int) -> None:
+        left = max(0, min(left, width - 1))
+        right = max(0, min(right, width))
+        top = max(0, min(top, height - 1))
+        bottom = max(0, min(bottom, height))
+        if right <= left or bottom <= top:
+            return
+        crop = frame[top:bottom, left:right]
+        if crop.size > 0:
+            crops.append(crop)
+
     for box in ranked_boxes[:max_crops_per_frame]:
         x1, y1, x2, y2 = [int(round(value)) for value in box]
         x1 = max(0, min(x1, width - 1))
@@ -299,23 +311,25 @@ def crop_vehicle_regions(frame: np.ndarray, boxes: list[list[float]], max_crops_
 
         pad_x = max(4, int(box_width * 0.08))
         pad_y = max(4, int(box_height * 0.08))
+        center_x = x1 + box_width // 2
 
         full_left = max(0, x1 - pad_x)
         full_top = max(0, y1 - pad_y)
         full_right = min(width, x2 + pad_x)
         full_bottom = min(height, y2 + pad_y)
-        full_crop = frame[full_top:full_bottom, full_left:full_right]
-        if full_crop.size > 0:
-            crops.append(full_crop)
+        append_crop(full_left, full_top, full_right, full_bottom)
 
         plate_band_top = y1 + int(box_height * 0.4)
         plate_band_bottom = y2 + pad_y
-        plate_band = frame[
-            max(0, plate_band_top):min(height, plate_band_bottom),
-            full_left:full_right,
-        ]
-        if plate_band.size > 0:
-            crops.append(plate_band)
+        append_crop(full_left, plate_band_top, full_right, plate_band_bottom)
+
+        # Add a tighter lower-center crop where front/rear plates are most likely to appear.
+        focus_half_width = max(18, int(box_width * 0.34))
+        focus_left = center_x - focus_half_width - max(2, pad_x // 2)
+        focus_right = center_x + focus_half_width + max(2, pad_x // 2)
+        focus_top = y1 + int(box_height * 0.48)
+        focus_bottom = y1 + int(box_height * 0.86) + max(2, pad_y // 2)
+        append_crop(focus_left, focus_top, focus_right, focus_bottom)
 
     return crops
 
