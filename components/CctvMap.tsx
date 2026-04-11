@@ -374,6 +374,7 @@ function liftOperationalLayers(map: import('maplibre-gl').Map) {
         ROUTE_PREVIEW_FOCUS_LAYER,
         TRACKING_LINE_LAYER,
         TRACKING_POINT_LAYER,
+        TRACKING_LABEL_LAYER,
         REGION_LABEL_LAYER,
     ].forEach((id) => moveLayerIfPresent(map, id));
 }
@@ -399,6 +400,7 @@ const ROUTE_PREVIEW_FOCUS_LAYER = 'route-monitoring-preview-focus';
 const TRACKING_SOURCE = 'tracking-overlay-source';
 const TRACKING_LINE_LAYER = 'tracking-overlay-line';
 const TRACKING_POINT_LAYER = 'tracking-overlay-point';
+const TRACKING_LABEL_LAYER = 'tracking-overlay-label';
 const ROAD_PRESET_SOURCE = 'road-preset-source';
 const ROAD_PRESET_LINE_LAYER = 'road-preset-line';
 const ROAD_PRESET_HIT_LAYER = 'road-preset-hit';
@@ -1113,12 +1115,18 @@ function buildTrackingOverlayGeoJson(
     trackingOverlay: ForensicTrackingResult | null,
     lookupItems: CctvItem[],
 ) {
-    if (!trackingOverlay || trackingOverlay.hits.length === 0) {
+    if (!trackingOverlay) {
         return { type: 'FeatureCollection' as const, features: [] as any[] };
     }
 
     const idLookup = new Map(lookupItems.map((item) => [item.id, item]));
     const nameLookup = new Map(lookupItems.map((item) => [item.name, item]));
+    const originItem = trackingOverlay.origin_cctv_id
+        ? idLookup.get(trackingOverlay.origin_cctv_id)
+            ?? (trackingOverlay.origin_cctv_name ? nameLookup.get(trackingOverlay.origin_cctv_name) : undefined)
+        : trackingOverlay.origin_cctv_name
+            ? nameLookup.get(trackingOverlay.origin_cctv_name)
+            : undefined;
     const orderedHits = [...trackingOverlay.hits].sort((left, right) => {
         const orderDelta = (left.travel_order ?? Number.MAX_SAFE_INTEGER) - (right.travel_order ?? Number.MAX_SAFE_INTEGER);
         if (orderDelta !== 0) return orderDelta;
@@ -1152,22 +1160,34 @@ function buildTrackingOverlayGeoJson(
         } => Boolean(entry));
 
     const features: any[] = [];
+    const lineCoordinates: [number, number][] = [];
 
-    if (trackedPoints.length >= 2) {
+    if (originItem) {
+        lineCoordinates.push([originItem.lng, originItem.lat]);
         features.push({
             type: 'Feature',
             properties: {
-                kind: 'line',
-                pointCount: trackedPoints.length,
+                kind: 'origin',
+                id: originItem.id,
+                sequence: -1,
+                confidence: 100,
+                isFocus: 1,
+                hasEta: 0,
+                isOrigin: 1,
+                label: 'S',
             },
             geometry: {
-                type: 'LineString',
-                coordinates: trackedPoints.map((entry) => [entry.item.lng, entry.item.lat]),
+                type: 'Point',
+                coordinates: [originItem.lng, originItem.lat],
             },
         });
     }
 
     trackedPoints.forEach(({ hit, item, sequence }) => {
+        const isSameAsOrigin = Boolean(originItem && originItem.id === item.id);
+        if (!isSameAsOrigin) {
+            lineCoordinates.push([item.lng, item.lat]);
+        }
         features.push({
             type: 'Feature',
             properties: {
@@ -1177,6 +1197,8 @@ function buildTrackingOverlayGeoJson(
                 confidence: hit.confidence,
                 isFocus: hit.is_route_focus ? 1 : 0,
                 hasEta: typeof hit.expected_eta_minutes === 'number' ? 1 : 0,
+                isOrigin: 0,
+                label: String(sequence + 1),
             },
             geometry: {
                 type: 'Point',
@@ -1184,6 +1206,20 @@ function buildTrackingOverlayGeoJson(
             },
         });
     });
+
+    if (lineCoordinates.length >= 2) {
+        features.push({
+            type: 'Feature',
+            properties: {
+                kind: 'line',
+                pointCount: lineCoordinates.length,
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: lineCoordinates,
+            },
+        });
+    }
 
     return {
         type: 'FeatureCollection' as const,
@@ -1223,14 +1259,51 @@ function ensureTrackingOverlayLayers(map: import('maplibre-gl').Map) {
             paint: {
                 'circle-radius': [
                     'case',
+                    ['==', ['get', 'isOrigin'], 1], 17,
                     ['==', ['get', 'isFocus'], 1], 15,
                     ['==', ['get', 'hasEta'], 1], 13.5,
                     12,
                 ],
-                'circle-color': 'rgba(244,114,182,0.14)',
-                'circle-stroke-color': '#f9a8d4',
-                'circle-stroke-width': 2.4,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'isOrigin'], 1], 'rgba(251,191,36,0.18)',
+                    'rgba(244,114,182,0.14)',
+                ],
+                'circle-stroke-color': [
+                    'case',
+                    ['==', ['get', 'isOrigin'], 1], '#fde68a',
+                    '#f9a8d4',
+                ],
+                'circle-stroke-width': [
+                    'case',
+                    ['==', ['get', 'isOrigin'], 1], 3,
+                    2.4,
+                ],
                 'circle-opacity': 0.95,
+            },
+        });
+    }
+
+    if (!map.getLayer(TRACKING_LABEL_LAYER) && map.getStyle()?.glyphs) {
+        map.addLayer({
+            id: TRACKING_LABEL_LAYER,
+            type: 'symbol',
+            source: TRACKING_SOURCE,
+            filter: ['==', ['geometry-type'], 'Point'],
+            layout: {
+                'text-field': ['get', 'label'],
+                'text-size': 11,
+                'text-font': ['Open Sans Bold'],
+                'text-allow-overlap': true,
+            },
+            paint: {
+                'text-color': [
+                    'case',
+                    ['==', ['get', 'isOrigin'], 1], '#fef3c7',
+                    '#fdf2f8',
+                ],
+                'text-halo-color': 'rgba(15,23,42,0.95)',
+                'text-halo-width': 1.5,
             },
         });
     }

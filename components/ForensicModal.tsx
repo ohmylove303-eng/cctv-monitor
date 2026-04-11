@@ -345,6 +345,7 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
 
 function normalizeTrackingResult(
     raw: Record<string, unknown>,
+    originCamera: CctvItem,
     scope: ForensicTrackCamera[],
     routeFocusSummary: Props['routeFocusSummary'],
 ): ForensicTrackingResult {
@@ -440,6 +441,16 @@ function normalizeTrackingResult(
         tracking_id: String(raw.tracking_id ?? raw.trackingId ?? raw.job_id ?? generateId('tracking')),
         status,
         searched_cameras: Number(raw.searched_cameras ?? raw.camera_count ?? scope.length),
+        origin_cctv_id: typeof raw.origin_cctv_id === 'string'
+            ? raw.origin_cctv_id
+            : typeof raw.originCctvId === 'string'
+                ? raw.originCctvId
+                : originCamera.id,
+        origin_cctv_name: typeof raw.origin_cctv_name === 'string'
+            ? raw.origin_cctv_name
+            : typeof raw.originCctvName === 'string'
+                ? raw.originCctvName
+                : originCamera.name,
         origin_timestamp: typeof raw.origin_timestamp === 'string'
             ? raw.origin_timestamp
             : typeof raw.originTimestamp === 'string'
@@ -855,11 +866,11 @@ export default function ForensicModal({
                 }),
             ]);
 
-            let normalized = normalizeTrackingResult(initialResult, trackScope, routeFocusSummary);
+            let normalized = normalizeTrackingResult(initialResult, cctv, trackScope, routeFocusSummary);
 
             if ((normalized.status === 'queued' || normalized.status === 'processing') && normalized.tracking_id) {
                 const finalResult = await waitForTrackingResult(normalized.tracking_id);
-                normalized = normalizeTrackingResult(finalResult, trackScope, routeFocusSummary);
+                normalized = normalizeTrackingResult(finalResult, cctv, trackScope, routeFocusSummary);
             }
 
             setTrackingResult(normalized);

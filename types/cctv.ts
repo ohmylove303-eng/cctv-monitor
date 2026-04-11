@@ -143,6 +143,8 @@ export interface ForensicTrackingResult {
     tracking_id: string;
     status: 'queued' | 'processing' | 'completed' | 'error';
     searched_cameras: number;
+    origin_cctv_id?: string;
+    origin_cctv_name?: string;
     origin_timestamp?: string;
     hits: ForensicTrackingHit[];
     message?: string;
