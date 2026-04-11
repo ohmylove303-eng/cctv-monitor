@@ -387,12 +387,55 @@ def extract_plate_candidates(texts: list[str]) -> list[str]:
 
     for normalized in iter_plate_search_texts(texts):
         for pattern in PLATE_REGEXES:
-            for match in pattern.findall(normalized):
-                if match not in seen:
-                    seen.add(match)
-                    found.append(match)
+            if pattern.fullmatch(normalized) and normalized not in seen:
+                seen.add(normalized)
+                found.append(normalized)
+                break
 
     return found[:5]
+
+
+def rank_plate_candidates(frame_text_batches: list[list[str]]) -> list[str]:
+    if not frame_text_batches:
+        return []
+
+    frame_support: dict[str, int] = {}
+    text_occurrences: dict[str, int] = {}
+    candidate_order: dict[str, int] = {}
+    order = 0
+
+    def candidate_shape_score(candidate: str) -> int:
+        if re.fullmatch(r"\d{2,3}[가-힣]\d{4}", candidate):
+            return 2
+        if re.fullmatch(r"[가-힣]{1,2}\d{2,3}[가-힣]\d{4}", candidate):
+            return 1
+        return 0
+
+    for texts in frame_text_batches:
+        frame_candidates = extract_plate_candidates(texts)
+        for candidate in frame_candidates:
+            frame_support[candidate] = frame_support.get(candidate, 0) + 1
+            if candidate not in candidate_order:
+                candidate_order[candidate] = order
+                order += 1
+
+        for search_text in iter_plate_search_texts(texts):
+            for candidate in frame_candidates:
+                if candidate in search_text:
+                    text_occurrences[candidate] = text_occurrences.get(candidate, 0) + 1
+
+    ranked = sorted(
+        frame_support.keys(),
+        key=lambda candidate: (
+            -frame_support.get(candidate, 0),
+            -text_occurrences.get(candidate, 0),
+            -candidate_shape_score(candidate),
+            len(candidate),
+            candidate_order.get(candidate, 999),
+        ),
+    )
+
+    return ranked[:5]
 
 
 def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None, analysis_mode: str = "verify") -> str:
@@ -405,7 +448,7 @@ def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str |
         return "ultralytics-yolo / scan-only"
 
     if ocr_status == "ocr_active":
-        return f"ultralytics-yolo / frame-sampling / {ocr_engine or 'ocr'}-hook"
+        return f"ultralytics-yolo / frame-sampling / {ocr_engine or 'ocr'}-consensus-hook"
 
     if ocr_status == "ocr_unavailable":
         requested_engine = settings.ocr_engine.strip().lower()
@@ -510,11 +553,13 @@ def run_plate_ocr(
     if reader is None:
         return [], "ocr_unavailable", settings.ocr_engine
 
-    ocr_texts: list[str] = []
+    ocr_text_batches: list[list[str]] = []
     for frame in frames[: settings.ocr_frame_limit]:
-        ocr_texts.extend(collect_easyocr_texts(reader, frame))
+        texts = collect_easyocr_texts(reader, frame)
+        if texts:
+            ocr_text_batches.append(texts)
 
-    candidates = extract_plate_candidates(ocr_texts)
+    candidates = rank_plate_candidates(ocr_text_batches)
     return candidates, "ocr_active", "easyocr"
 
 
