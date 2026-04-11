@@ -509,6 +509,24 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
             candidate_order.get(candidate, 999),
         )
 
+    def is_viable_candidate(candidate: str) -> bool:
+        support = frame_support.get(candidate, 0)
+        total_weight = weighted_support.get(candidate, 0.0)
+        average_weight = total_weight / support if support else 0.0
+        strongest_weight = peak_weight.get(candidate, 0.0)
+        shape_score = candidate_shape_score(candidate)
+
+        if support >= 2:
+            return True
+
+        if shape_score >= 2 and strongest_weight >= 0.58 and average_weight >= 0.45:
+            return True
+
+        if total_weight >= 1.05 and strongest_weight >= 0.5:
+            return True
+
+        return False
+
     ranked = sorted(
         frame_support.keys(),
         key=lambda candidate: (
@@ -531,6 +549,10 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
                 break
         if not suppress_candidate:
             filtered.append(candidate)
+
+    viable = [candidate for candidate in filtered if is_viable_candidate(candidate)]
+    if viable:
+        return viable[:5]
 
     return filtered[:5]
 
