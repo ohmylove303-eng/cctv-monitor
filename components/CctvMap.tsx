@@ -367,6 +367,10 @@ function liftOperationalLayers(map: import('maplibre-gl').Map) {
         ROAD_PRESET_LINE_LAYER,
         ROAD_PRESET_HIT_LAYER,
         ROAD_PRESET_LABEL_LAYER,
+        ROAD_PRESET_ACTIVE_GLOW_LAYER,
+        ROAD_PRESET_ACTIVE_LINE_LAYER,
+        ROAD_PRESET_ACTIVE_POINT_LAYER,
+        ROAD_PRESET_ACTIVE_LABEL_LAYER,
         CCTV_LAYER,
         ROUTE_LINE_LAYER,
         ROUTE_FOCUS_LAYER,
@@ -405,6 +409,11 @@ const ROAD_PRESET_SOURCE = 'road-preset-source';
 const ROAD_PRESET_LINE_LAYER = 'road-preset-line';
 const ROAD_PRESET_HIT_LAYER = 'road-preset-hit';
 const ROAD_PRESET_LABEL_LAYER = 'road-preset-label';
+const ROAD_PRESET_ACTIVE_SOURCE = 'road-preset-active-source';
+const ROAD_PRESET_ACTIVE_GLOW_LAYER = 'road-preset-active-glow';
+const ROAD_PRESET_ACTIVE_LINE_LAYER = 'road-preset-active-line';
+const ROAD_PRESET_ACTIVE_POINT_LAYER = 'road-preset-active-point';
+const ROAD_PRESET_ACTIVE_LABEL_LAYER = 'road-preset-active-label';
 const SATELLITE_REQUEST_SCALE = 2;
 const SATELLITE_REQUEST_MAX_DIMENSION = 2048;
 const SATELLITE_REFRESH_DEBOUNCE_MS = 180;
@@ -708,6 +717,96 @@ function buildRoadPresetGeoJson(items: CctvItem[], selectedPreset: RoadPreset) {
     };
 }
 
+function buildActiveRoadPresetGeoJson(items: CctvItem[], selectedPreset: RoadPreset) {
+    if (selectedPreset === 'all') {
+        return {
+            type: 'FeatureCollection' as const,
+            features: [] as any[],
+        };
+    }
+
+    const option = ROAD_PRESET_OPTIONS.find((entry) => entry.id === selectedPreset);
+    if (!option) {
+        return {
+            type: 'FeatureCollection' as const,
+            features: [] as any[],
+        };
+    }
+
+    const roadItems = sortRoadAxisItems(
+        items.filter((item) => matchesRoadPreset(item, selectedPreset))
+    );
+
+    if (roadItems.length < 2) {
+        return {
+            type: 'FeatureCollection' as const,
+            features: [] as any[],
+        };
+    }
+
+    const coordinates = roadItems.map((item) => [item.lng, item.lat]);
+    const [startLng, startLat] = coordinates[0];
+    const [endLng, endLat] = coordinates[coordinates.length - 1];
+    const midIndex = Math.floor(coordinates.length / 2);
+    const [labelLng, labelLat] = coordinates[midIndex];
+
+    return {
+        type: 'FeatureCollection' as const,
+        features: [
+            {
+                type: 'Feature',
+                properties: {
+                    kind: 'line',
+                    roadLabel: option.label,
+                    cameraCount: roadItems.length,
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates,
+                },
+            },
+            {
+                type: 'Feature',
+                properties: {
+                    kind: 'endpoint',
+                    roadLabel: option.label,
+                    endpointRole: 'start',
+                    label: '축 시작',
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: [startLng, startLat],
+                },
+            },
+            {
+                type: 'Feature',
+                properties: {
+                    kind: 'endpoint',
+                    roadLabel: option.label,
+                    endpointRole: 'end',
+                    label: '축 끝',
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: [endLng, endLat],
+                },
+            },
+            {
+                type: 'Feature',
+                properties: {
+                    kind: 'label',
+                    roadLabel: option.label,
+                    label: `${option.label} · ${roadItems.length}대`,
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: [labelLng, labelLat],
+                },
+            },
+        ],
+    };
+}
+
 function removeSatLayers(map: import('maplibre-gl').Map) {
     if (map.getLayer(SAT_IMAGE_LAYER)) map.removeLayer(SAT_IMAGE_LAYER);
     if (map.getLayer(SAT_RASTER_LAYER)) map.removeLayer(SAT_RASTER_LAYER);
@@ -897,6 +996,87 @@ function ensureRoadPresetLayers(map: import('maplibre-gl').Map) {
             },
         });
     }
+
+    if (!map.getSource(ROAD_PRESET_ACTIVE_SOURCE)) {
+        map.addSource(ROAD_PRESET_ACTIVE_SOURCE, {
+            type: 'geojson',
+            data: buildActiveRoadPresetGeoJson([], 'all'),
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_ACTIVE_GLOW_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_ACTIVE_GLOW_LAYER,
+            type: 'line',
+            source: ROAD_PRESET_ACTIVE_SOURCE,
+            filter: ['==', ['get', 'kind'], 'line'],
+            paint: {
+                'line-color': '#f59e0b',
+                'line-width': 16,
+                'line-opacity': 0.18,
+            },
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_ACTIVE_LINE_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_ACTIVE_LINE_LAYER,
+            type: 'line',
+            source: ROAD_PRESET_ACTIVE_SOURCE,
+            filter: ['==', ['get', 'kind'], 'line'],
+            paint: {
+                'line-color': '#fde047',
+                'line-width': 8,
+                'line-opacity': 0.95,
+                'line-dasharray': [1, 0.8],
+            },
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_ACTIVE_POINT_LAYER)) {
+        map.addLayer({
+            id: ROAD_PRESET_ACTIVE_POINT_LAYER,
+            type: 'circle',
+            source: ROAD_PRESET_ACTIVE_SOURCE,
+            filter: ['==', ['get', 'kind'], 'endpoint'],
+            paint: {
+                'circle-radius': 9,
+                'circle-color': 'rgba(253,224,71,0.18)',
+                'circle-stroke-color': '#fde68a',
+                'circle-stroke-width': 2.4,
+                'circle-opacity': 0.98,
+            },
+        });
+    }
+
+    if (!map.getLayer(ROAD_PRESET_ACTIVE_LABEL_LAYER) && map.getStyle()?.glyphs) {
+        map.addLayer({
+            id: ROAD_PRESET_ACTIVE_LABEL_LAYER,
+            type: 'symbol',
+            source: ROAD_PRESET_ACTIVE_SOURCE,
+            filter: ['any', ['==', ['get', 'kind'], 'label'], ['==', ['get', 'kind'], 'endpoint']],
+            layout: {
+                'text-field': ['get', 'label'],
+                'text-size': [
+                    'case',
+                    ['==', ['get', 'kind'], 'label'], 12,
+                    10,
+                ],
+                'text-font': ['Open Sans Bold'],
+                'text-allow-overlap': true,
+                'text-offset': [
+                    'case',
+                    ['==', ['get', 'kind'], 'label'], ['literal', [0, 0]],
+                    ['literal', [0, -1.25]],
+                ],
+            },
+            paint: {
+                'text-color': '#fef3c7',
+                'text-halo-color': 'rgba(15,23,42,0.95)',
+                'text-halo-width': 1.6,
+            },
+        });
+    }
 }
 
 function syncRoadPresetLayers(
@@ -907,6 +1087,8 @@ function syncRoadPresetLayers(
     ensureRoadPresetLayers(map);
     const source = map.getSource(ROAD_PRESET_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
     source?.setData(buildRoadPresetGeoJson(items, selectedPreset) as any);
+    const activeSource = map.getSource(ROAD_PRESET_ACTIVE_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
+    activeSource?.setData(buildActiveRoadPresetGeoJson(items, selectedPreset) as any);
 }
 
 function buildRouteMonitoringGeoJson(plan: RouteMonitoringPlan | null, items: CctvItem[]) {
