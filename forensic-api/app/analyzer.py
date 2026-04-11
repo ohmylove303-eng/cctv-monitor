@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from .models import AnalyzeRequest, AnalyzeResponse, QualityReport, TrackCamera, TrackHit, TrackRequest, TrackResponse
+from .models import AnalyzeRequest, AnalyzeResponse, OcrDiagnostics, QualityReport, TrackCamera, TrackHit, TrackRequest, TrackResponse
 from .settings import Settings, get_settings
 
 KST = timezone(timedelta(hours=9))
@@ -463,9 +463,9 @@ def extract_plate_candidates(texts: list[str]) -> list[str]:
     return found[:5]
 
 
-def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]]) -> list[str]:
+def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]]) -> tuple[list[str], OcrDiagnostics]:
     if not frame_observation_batches:
-        return []
+        return [], OcrDiagnostics()
 
     frame_support: dict[str, int] = {}
     weighted_support: dict[str, float] = {}
@@ -537,6 +537,7 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
 
     ranked_set = set(ranked)
     filtered: list[str] = []
+    suppressed_region_variants = 0
     for candidate in ranked:
         suppress_candidate = False
         for prefix in REGION_PREFIXES:
@@ -546,15 +547,25 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
             if re.fullmatch(r"\d{2,3}[가-힣]\d{4}", suffix) and suffix in ranked_set:
                 # Keep the simpler observed suffix only when it was also seen explicitly.
                 suppress_candidate = True
+                suppressed_region_variants += 1
                 break
         if not suppress_candidate:
             filtered.append(candidate)
 
     viable = [candidate for candidate in filtered if is_viable_candidate(candidate)]
-    if viable:
-        return viable[:5]
-
-    return filtered[:5]
+    final_candidates = (viable or filtered)[:5]
+    top_candidate = final_candidates[0] if final_candidates else None
+    diagnostics = OcrDiagnostics(
+        frame_batches=len(frame_observation_batches),
+        observation_count=sum(len(batch) for batch in frame_observation_batches),
+        raw_candidate_count=len(ranked),
+        viable_candidate_count=len(viable),
+        final_candidate_count=len(final_candidates),
+        suppressed_region_variants=suppressed_region_variants,
+        top_candidate_support=frame_support.get(top_candidate, 0) if top_candidate else 0,
+        top_candidate_weight=round(weighted_support.get(top_candidate, 0.0), 3) if top_candidate else 0.0,
+    )
+    return final_candidates, diagnostics
 
 
 def build_algorithm_label(settings: Settings, ocr_status: str, ocr_engine: str | None, analysis_mode: str = "verify") -> str:
@@ -652,25 +663,25 @@ def run_plate_ocr(
     frames: list[np.ndarray] | list[OcrCrop],
     request: AnalyzeRequest,
     settings: Settings,
-) -> tuple[list[str], str, str | None]:
+) -> tuple[list[str], str, str | None, OcrDiagnostics | None]:
     # OCR/ALPR hook. Keep the contract stable so we can add EasyOCR/PaddleOCR
     # later without changing the API shape again.
     if settings.forensic_demo_mode:
-        return [], "target_hint_only", None
+        return [], "target_hint_only", None, None
 
     engine = settings.ocr_engine.strip().lower()
     if engine in {"", "disabled", "none", "off"}:
-        return [], "not_available", None
+        return [], "not_available", None, None
 
     if engine != "easyocr":
-        return [], "ocr_unavailable", settings.ocr_engine
+        return [], "ocr_unavailable", settings.ocr_engine, None
 
     if not frames:
-        return [], "skipped_no_frames", settings.ocr_engine
+        return [], "skipped_no_frames", settings.ocr_engine, OcrDiagnostics()
 
     reader = get_easyocr_reader()
     if reader is None:
-        return [], "ocr_unavailable", settings.ocr_engine
+        return [], "ocr_unavailable", settings.ocr_engine, None
 
     ocr_observation_batches: list[list[OcrObservation]] = []
     for frame_input in frames[: settings.ocr_frame_limit]:
@@ -679,8 +690,8 @@ def run_plate_ocr(
         if observations:
             ocr_observation_batches.append(observations)
 
-    candidates = rank_plate_candidates(ocr_observation_batches)
-    return candidates, "ocr_active", "easyocr"
+    candidates, diagnostics = rank_plate_candidates(ocr_observation_batches)
+    return candidates, "ocr_active", "easyocr", diagnostics
 
 
 def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
@@ -727,6 +738,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             vehicle_count=vehicle_count,
             ocr_status="target_hint_only",
             ocr_engine=None,
+            ocr_diagnostics=None,
             target_plate=request.target_plate,
             target_color=request.target_color,
             target_vehicle_type=request.target_vehicle_type,
@@ -738,13 +750,14 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     frames = prioritize_frames(frames, frame_limit)
     vehicle_count, labels, ocr_inputs = run_yolo_vehicle_scan(frames, settings)
     should_run_ocr = analysis_mode == "verify" and len(frames) > 0 and vehicle_count > 0
-    plate_candidates, ocr_status, ocr_engine = (
+    plate_candidates, ocr_status, ocr_engine, ocr_diagnostics = (
         run_plate_ocr(ocr_inputs or frames[: settings.ocr_frame_limit], request, settings)
         if should_run_ocr
         else (
             [],
             "skipped_no_frames" if len(frames) == 0 else "skipped_no_vehicle",
             settings.ocr_engine if settings.ocr_engine.strip().lower() not in {"", "disabled", "none", "off"} else None,
+            None,
         )
     )
 
@@ -782,6 +795,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         vehicle_count=vehicle_count,
         ocr_status=ocr_status,
         ocr_engine=ocr_engine,
+        ocr_diagnostics=ocr_diagnostics,
         target_plate=request.target_plate,
         target_color=request.target_color,
         target_vehicle_type=request.target_vehicle_type or (distinct_labels[0] if distinct_labels else None),

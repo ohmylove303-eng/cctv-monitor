@@ -11,6 +11,17 @@ class QualityReport(BaseModel):
     threshold: float
 
 
+class OcrDiagnostics(BaseModel):
+    frame_batches: int = 0
+    observation_count: int = 0
+    raw_candidate_count: int = 0
+    viable_candidate_count: int = 0
+    final_candidate_count: int = 0
+    suppressed_region_variants: int = 0
+    top_candidate_support: int = 0
+    top_candidate_weight: float = 0.0
+
+
 class AnalyzeRequest(BaseModel):
     cctv_id: str = Field(..., min_length=1)
     hls_url: HttpUrl
@@ -45,6 +56,7 @@ class AnalyzeResponse(BaseModel):
         "skipped_no_frames",
     ] = "not_available"
     ocr_engine: str | None = None
+    ocr_diagnostics: OcrDiagnostics | None = None
     target_plate: str | None = None
     target_color: str | None = None
     target_vehicle_type: str | None = None

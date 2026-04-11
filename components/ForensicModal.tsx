@@ -338,6 +338,19 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
                                 ? 'skipped_no_frames'
                                 : 'not_available',
         ocr_engine: typeof raw.ocr_engine === 'string' ? raw.ocr_engine : null,
+        ocr_diagnostics:
+            typeof raw.ocr_diagnostics === 'object' && raw.ocr_diagnostics
+                ? {
+                    frame_batches: Number((raw.ocr_diagnostics as Record<string, unknown>).frame_batches ?? 0),
+                    observation_count: Number((raw.ocr_diagnostics as Record<string, unknown>).observation_count ?? 0),
+                    raw_candidate_count: Number((raw.ocr_diagnostics as Record<string, unknown>).raw_candidate_count ?? 0),
+                    viable_candidate_count: Number((raw.ocr_diagnostics as Record<string, unknown>).viable_candidate_count ?? 0),
+                    final_candidate_count: Number((raw.ocr_diagnostics as Record<string, unknown>).final_candidate_count ?? 0),
+                    suppressed_region_variants: Number((raw.ocr_diagnostics as Record<string, unknown>).suppressed_region_variants ?? 0),
+                    top_candidate_support: Number((raw.ocr_diagnostics as Record<string, unknown>).top_candidate_support ?? 0),
+                    top_candidate_weight: Number((raw.ocr_diagnostics as Record<string, unknown>).top_candidate_weight ?? 0),
+                }
+                : null,
         target_plate: typeof raw.target_plate === 'string' ? raw.target_plate : undefined,
         target_color: typeof raw.target_color === 'string' ? raw.target_color : undefined,
         target_vehicle_type: typeof raw.target_vehicle_type === 'string' ? raw.target_vehicle_type : undefined,
@@ -1498,6 +1511,28 @@ export default function ForensicModal({
                             >
                                 해시 체인: {analysisResult.chain_hash}
                             </div>
+
+                            {analysisResult.ocr_diagnostics && analysisResult.ocr_status === 'ocr_active' && (
+                                <div
+                                    style={{
+                                        padding: '9px 12px',
+                                        background: 'rgba(56,189,248,0.06)',
+                                        border: '1px solid rgba(56,189,248,0.18)',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        color: '#bae6fd',
+                                        lineHeight: 1.7,
+                                    }}
+                                >
+                                    OCR 진단: 프레임 {analysisResult.ocr_diagnostics.frame_batches}개 · 관측 {analysisResult.ocr_diagnostics.observation_count}건 · 후보 {analysisResult.ocr_diagnostics.raw_candidate_count}개 → 최종 {analysisResult.ocr_diagnostics.final_candidate_count}개
+                                    {analysisResult.ocr_diagnostics.suppressed_region_variants > 0
+                                        ? ` · 지역접두 정리 ${analysisResult.ocr_diagnostics.suppressed_region_variants}건`
+                                        : ''}
+                                    {analysisResult.ocr_diagnostics.top_candidate_support > 0
+                                        ? ` · 상위 후보 지지 ${analysisResult.ocr_diagnostics.top_candidate_support}프레임`
+                                        : ''}
+                                </div>
+                            )}
                         </div>
                     )}
 

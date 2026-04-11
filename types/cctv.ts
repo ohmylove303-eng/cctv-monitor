@@ -89,6 +89,17 @@ export interface ForensicQualityReport {
     threshold: number;
 }
 
+export interface ForensicOcrDiagnostics {
+    frame_batches: number;
+    observation_count: number;
+    raw_candidate_count: number;
+    viable_candidate_count: number;
+    final_candidate_count: number;
+    suppressed_region_variants: number;
+    top_candidate_support: number;
+    top_candidate_weight: number;
+}
+
 export interface ForensicResult {
     job_id: string;
     cctv_id: string;
@@ -113,6 +124,7 @@ export interface ForensicResult {
         | 'skipped_no_vehicle'
         | 'skipped_no_frames';
     ocr_engine?: string | null;
+    ocr_diagnostics?: ForensicOcrDiagnostics | null;
     target_plate?: string;
     target_color?: string;
     target_vehicle_type?: string;
