@@ -20,6 +20,7 @@ class OcrDiagnostics(BaseModel):
     suppressed_region_variants: int = 0
     top_candidate_support: int = 0
     top_candidate_weight: float = 0.0
+    top_candidate_reason: str | None = None
 
 
 class AnalyzeRequest(BaseModel):

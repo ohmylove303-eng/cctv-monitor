@@ -509,6 +509,40 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
             candidate_order.get(candidate, 999),
         )
 
+    def describe_candidate_reason(candidate: str | None) -> str | None:
+        if not candidate:
+            return None
+
+        support = frame_support.get(candidate, 0)
+        total_weight = weighted_support.get(candidate, 0.0)
+        average_weight = total_weight / support if support else 0.0
+        strongest_weight = peak_weight.get(candidate, 0.0)
+
+        parts: list[str] = []
+        if support >= 2:
+            parts.append(f"{support}개 프레임에서 반복 관측")
+        elif support == 1:
+            parts.append("단일 프레임 관측")
+
+        if average_weight >= 0.75:
+            parts.append("평균 OCR 신호가 강함")
+        elif strongest_weight >= 0.72:
+            parts.append("강한 단일 OCR 신호 확인")
+        elif average_weight >= 0.5:
+            parts.append("중간 이상 OCR 신호 유지")
+
+        if any(prefixed == candidate for prefixed in ranked):
+            suffix_matched = any(
+                candidate.startswith(prefix)
+                and re.fullmatch(r"\d{2,3}[가-힣]\d{4}", candidate[len(prefix):])
+                and candidate[len(prefix):] in ranked_set
+                for prefix in REGION_PREFIXES
+            )
+            if suffix_matched:
+                parts.append("지역 접두 중복을 정리한 뒤 유지")
+
+        return " · ".join(parts) if parts else None
+
     def is_viable_candidate(candidate: str) -> bool:
         support = frame_support.get(candidate, 0)
         total_weight = weighted_support.get(candidate, 0.0)
@@ -564,6 +598,7 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
         suppressed_region_variants=suppressed_region_variants,
         top_candidate_support=frame_support.get(top_candidate, 0) if top_candidate else 0,
         top_candidate_weight=round(weighted_support.get(top_candidate, 0.0), 3) if top_candidate else 0.0,
+        top_candidate_reason=describe_candidate_reason(top_candidate),
     )
     return final_candidates, diagnostics
 

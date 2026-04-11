@@ -349,6 +349,9 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
                     suppressed_region_variants: Number((raw.ocr_diagnostics as Record<string, unknown>).suppressed_region_variants ?? 0),
                     top_candidate_support: Number((raw.ocr_diagnostics as Record<string, unknown>).top_candidate_support ?? 0),
                     top_candidate_weight: Number((raw.ocr_diagnostics as Record<string, unknown>).top_candidate_weight ?? 0),
+                    top_candidate_reason: typeof (raw.ocr_diagnostics as Record<string, unknown>).top_candidate_reason === 'string'
+                        ? String((raw.ocr_diagnostics as Record<string, unknown>).top_candidate_reason)
+                        : null,
                 }
                 : null,
         target_plate: typeof raw.target_plate === 'string' ? raw.target_plate : undefined,
@@ -1522,6 +1525,7 @@ export default function ForensicModal({
                                         fontSize: 11,
                                         color: '#bae6fd',
                                         lineHeight: 1.7,
+                                        whiteSpace: 'pre-line',
                                     }}
                                 >
                                     OCR 진단: 프레임 {analysisResult.ocr_diagnostics.frame_batches}개 · 관측 {analysisResult.ocr_diagnostics.observation_count}건 · 후보 {analysisResult.ocr_diagnostics.raw_candidate_count}개 → 최종 {analysisResult.ocr_diagnostics.final_candidate_count}개
@@ -1530,6 +1534,9 @@ export default function ForensicModal({
                                         : ''}
                                     {analysisResult.ocr_diagnostics.top_candidate_support > 0
                                         ? ` · 상위 후보 지지 ${analysisResult.ocr_diagnostics.top_candidate_support}프레임`
+                                        : ''}
+                                    {analysisResult.ocr_diagnostics.top_candidate_reason
+                                        ? `\n상위 후보 설명: ${analysisResult.ocr_diagnostics.top_candidate_reason}`
                                         : ''}
                                 </div>
                             )}

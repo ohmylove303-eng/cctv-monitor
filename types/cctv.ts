@@ -98,6 +98,7 @@ export interface ForensicOcrDiagnostics {
     suppressed_region_variants: number;
     top_candidate_support: number;
     top_candidate_weight: number;
+    top_candidate_reason?: string | null;
 }
 
 export interface ForensicResult {
