@@ -469,6 +469,7 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
 
     frame_support: dict[str, int] = {}
     weighted_support: dict[str, float] = {}
+    peak_weight: dict[str, float] = {}
     candidate_order: dict[str, int] = {}
     order = 0
 
@@ -490,18 +491,29 @@ def rank_plate_candidates(frame_observation_batches: list[list[OcrObservation]])
                 default=0.0,
             )
             weighted_support[candidate] = weighted_support.get(candidate, 0.0) + candidate_weight
+            peak_weight[candidate] = max(peak_weight.get(candidate, 0.0), candidate_weight)
             if candidate not in candidate_order:
                 candidate_order[candidate] = order
                 order += 1
 
+    def candidate_stability_key(candidate: str) -> tuple[float, float, float, int, int, int]:
+        support = frame_support.get(candidate, 0)
+        total_weight = weighted_support.get(candidate, 0.0)
+        average_weight = total_weight / support if support else 0.0
+        return (
+            -support,
+            -average_weight,
+            -peak_weight.get(candidate, 0.0),
+            -total_weight,
+            -candidate_shape_score(candidate),
+            candidate_order.get(candidate, 999),
+        )
+
     ranked = sorted(
         frame_support.keys(),
         key=lambda candidate: (
-            -frame_support.get(candidate, 0),
-            -weighted_support.get(candidate, 0.0),
-            -candidate_shape_score(candidate),
+            *candidate_stability_key(candidate),
             len(candidate),
-            candidate_order.get(candidate, 999),
         ),
     )
 
