@@ -8,7 +8,15 @@ import EventPanel from '@/components/EventPanel';
 import CameraDetail from '@/components/CameraDetail';
 import ForensicModal from '@/components/ForensicModal';
 
-import { CctvItem, LayerVisibility, RegionFilter, RoadPreset, RouteDirection, RouteScopeMode } from '@/types/cctv';
+import {
+    CctvItem,
+    ForensicTrackingResult,
+    LayerVisibility,
+    RegionFilter,
+    RoadPreset,
+    RouteDirection,
+    RouteScopeMode,
+} from '@/types/cctv';
 import { SatelliteMode } from '@/components/SatelliteControlPanel';
 import SatelliteControlPanel from '@/components/SatelliteControlPanel';
 import { matchesRoadPreset } from '@/lib/road-presets';
@@ -118,6 +126,7 @@ export default function DashboardPage() {
     const [dataError, setDataError] = useState<string | null>(null);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [showForensic, setShowForensic] = useState(false);
+    const [trackingOverlay, setTrackingOverlay] = useState<ForensicTrackingResult | null>(null);
     const [forensicStatus, setForensicStatus] = useState({
         enabled: false,
         provider: 'missing' as 'configured' | 'fallback' | 'missing',
@@ -693,6 +702,8 @@ export default function DashboardPage() {
                         items={visibleMapItems}
                         roadOverlayItems={roadOverlayItems}
                         roadPreset={roadPreset}
+                        trackingOverlay={trackingOverlay}
+                        trackingLookupItems={displayCctv}
                         onRoadPresetSelect={handleRoadPresetChange}
                         routeMonitoringPlan={routeMonitoringPlan}
                         routePreviewPlan={routePreviewPlan}
@@ -875,6 +886,7 @@ export default function DashboardPage() {
                     backendEnabled={forensicStatus.enabled}
                     backendProvider={forensicStatus.provider}
                     backendMessage={forensicStatus.message}
+                    onTrackingResultChange={setTrackingOverlay}
                     onLocate={handleLocate}
                     onClose={() => setShowForensic(false)}
                 />

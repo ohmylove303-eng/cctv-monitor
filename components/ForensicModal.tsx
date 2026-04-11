@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
     CctvItem,
     ForensicRouteContext,
@@ -43,6 +43,7 @@ interface Props {
     backendProvider?: 'configured' | 'fallback' | 'missing';
     backendMessage?: string | null;
     onLocate?: (cctvId: string) => void;
+    onTrackingResultChange?: (result: ForensicTrackingResult | null) => void;
     onClose: () => void;
 }
 
@@ -513,6 +514,7 @@ export default function ForensicModal({
     backendProvider = 'missing',
     backendMessage,
     onLocate,
+    onTrackingResultChange,
     onClose,
 }: Props) {
     const [phase, setPhase] = useState<Phase>('idle');
@@ -529,6 +531,10 @@ export default function ForensicModal({
         () => loadCameraQualityTelemetry()
     );
     const runIdRef = useRef(0);
+
+    useEffect(() => {
+        onTrackingResultChange?.(trackingResult);
+    }, [onTrackingResultChange, trackingResult]);
 
     const isCurrentCameraSupported = supportsVehicleForensic(cctv);
     const trackScope = useMemo(

@@ -6,7 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import type { LayersList } from '@deck.gl/core';
-import { CctvItem, RoadPreset } from '@/types/cctv';
+import { CctvItem, ForensicTrackingResult, RoadPreset } from '@/types/cctv';
 import type { SatelliteMode } from '@/components/SatelliteControlPanel';
 import { hasVerifiedCoordinate } from '@/lib/coordinate-quality';
 import type { RouteMonitoringPlan } from '@/lib/route-monitoring';
@@ -21,6 +21,8 @@ interface Props {
     items: CctvItem[];
     roadOverlayItems?: CctvItem[];
     roadPreset?: RoadPreset;
+    trackingOverlay?: ForensicTrackingResult | null;
+    trackingLookupItems?: CctvItem[];
     onRoadPresetSelect?: (preset: RoadPreset) => void;
     routeMonitoringPlan?: RouteMonitoringPlan | null;
     routePreviewPlan?: RouteMonitoringPlan | null;
@@ -370,6 +372,8 @@ function liftOperationalLayers(map: import('maplibre-gl').Map) {
         ROUTE_FOCUS_LAYER,
         ROUTE_PREVIEW_LINE_LAYER,
         ROUTE_PREVIEW_FOCUS_LAYER,
+        TRACKING_LINE_LAYER,
+        TRACKING_POINT_LAYER,
         REGION_LABEL_LAYER,
     ].forEach((id) => moveLayerIfPresent(map, id));
 }
@@ -392,6 +396,9 @@ const ROUTE_FOCUS_LAYER = 'route-monitoring-focus';
 const ROUTE_PREVIEW_SOURCE = 'route-monitoring-preview-source';
 const ROUTE_PREVIEW_LINE_LAYER = 'route-monitoring-preview-line';
 const ROUTE_PREVIEW_FOCUS_LAYER = 'route-monitoring-preview-focus';
+const TRACKING_SOURCE = 'tracking-overlay-source';
+const TRACKING_LINE_LAYER = 'tracking-overlay-line';
+const TRACKING_POINT_LAYER = 'tracking-overlay-point';
 const ROAD_PRESET_SOURCE = 'road-preset-source';
 const ROAD_PRESET_LINE_LAYER = 'road-preset-line';
 const ROAD_PRESET_HIT_LAYER = 'road-preset-hit';
@@ -1102,11 +1109,150 @@ function syncRoutePreviewLayers(
     source?.setData(buildRouteMonitoringGeoJson(plan, items) as any);
 }
 
+function buildTrackingOverlayGeoJson(
+    trackingOverlay: ForensicTrackingResult | null,
+    lookupItems: CctvItem[],
+) {
+    if (!trackingOverlay || trackingOverlay.hits.length === 0) {
+        return { type: 'FeatureCollection' as const, features: [] as any[] };
+    }
+
+    const idLookup = new Map(lookupItems.map((item) => [item.id, item]));
+    const nameLookup = new Map(lookupItems.map((item) => [item.name, item]));
+    const orderedHits = [...trackingOverlay.hits].sort((left, right) => {
+        const orderDelta = (left.travel_order ?? Number.MAX_SAFE_INTEGER) - (right.travel_order ?? Number.MAX_SAFE_INTEGER);
+        if (orderDelta !== 0) return orderDelta;
+
+        const leftTime = Date.parse(left.timestamp);
+        const rightTime = Date.parse(right.timestamp);
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+            return leftTime - rightTime;
+        }
+
+        return right.confidence - left.confidence;
+    });
+
+    const trackedPoints = orderedHits
+        .map((hit, index) => {
+            const matched = idLookup.get(hit.cctv_id) ?? nameLookup.get(hit.cctv_name);
+            if (!matched) {
+                return null;
+            }
+
+            return {
+                hit,
+                item: matched,
+                sequence: index,
+            };
+        })
+        .filter((entry): entry is {
+            hit: ForensicTrackingResult['hits'][number];
+            item: CctvItem;
+            sequence: number;
+        } => Boolean(entry));
+
+    const features: any[] = [];
+
+    if (trackedPoints.length >= 2) {
+        features.push({
+            type: 'Feature',
+            properties: {
+                kind: 'line',
+                pointCount: trackedPoints.length,
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: trackedPoints.map((entry) => [entry.item.lng, entry.item.lat]),
+            },
+        });
+    }
+
+    trackedPoints.forEach(({ hit, item, sequence }) => {
+        features.push({
+            type: 'Feature',
+            properties: {
+                kind: 'point',
+                id: item.id,
+                sequence,
+                confidence: hit.confidence,
+                isFocus: hit.is_route_focus ? 1 : 0,
+                hasEta: typeof hit.expected_eta_minutes === 'number' ? 1 : 0,
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [item.lng, item.lat],
+            },
+        });
+    });
+
+    return {
+        type: 'FeatureCollection' as const,
+        features,
+    };
+}
+
+function ensureTrackingOverlayLayers(map: import('maplibre-gl').Map) {
+    if (!map.getSource(TRACKING_SOURCE)) {
+        map.addSource(TRACKING_SOURCE, {
+            type: 'geojson',
+            data: buildTrackingOverlayGeoJson(null, []),
+        });
+    }
+
+    if (!map.getLayer(TRACKING_LINE_LAYER)) {
+        map.addLayer({
+            id: TRACKING_LINE_LAYER,
+            type: 'line',
+            source: TRACKING_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: {
+                'line-color': '#f472b6',
+                'line-width': 4,
+                'line-opacity': 0.88,
+                'line-dasharray': [1.4, 1],
+            },
+        });
+    }
+
+    if (!map.getLayer(TRACKING_POINT_LAYER)) {
+        map.addLayer({
+            id: TRACKING_POINT_LAYER,
+            type: 'circle',
+            source: TRACKING_SOURCE,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-radius': [
+                    'case',
+                    ['==', ['get', 'isFocus'], 1], 15,
+                    ['==', ['get', 'hasEta'], 1], 13.5,
+                    12,
+                ],
+                'circle-color': 'rgba(244,114,182,0.14)',
+                'circle-stroke-color': '#f9a8d4',
+                'circle-stroke-width': 2.4,
+                'circle-opacity': 0.95,
+            },
+        });
+    }
+}
+
+function syncTrackingOverlayLayers(
+    map: import('maplibre-gl').Map,
+    trackingOverlay: ForensicTrackingResult | null,
+    lookupItems: CctvItem[],
+) {
+    ensureTrackingOverlayLayers(map);
+    const source = map.getSource(TRACKING_SOURCE) as import('maplibre-gl').GeoJSONSource | undefined;
+    source?.setData(buildTrackingOverlayGeoJson(trackingOverlay, lookupItems) as any);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 const CctvMap = forwardRef<CctvMapHandle, Props>(({
     items,
     roadOverlayItems = [],
     roadPreset = 'all',
+    trackingOverlay = null,
+    trackingLookupItems = items,
     onRoadPresetSelect,
     routeMonitoringPlan = null,
     routePreviewPlan = null,
@@ -1130,6 +1276,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     const mapReadyRef = useRef(false);
     const itemsRef = useRef<CctvItem[]>(items);
     const roadOverlayItemsRef = useRef<CctvItem[]>(roadOverlayItems);
+    const trackingLookupItemsRef = useRef<CctvItem[]>(trackingLookupItems);
     const onSelectRef = useRef(onSelect);
     const onRoadPresetSelectRef = useRef(onRoadPresetSelect);
 
@@ -1161,9 +1308,10 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
     useEffect(() => {
         itemsRef.current = items;
         roadOverlayItemsRef.current = roadOverlayItems;
+        trackingLookupItemsRef.current = trackingLookupItems;
         onSelectRef.current = onSelect;
         onRoadPresetSelectRef.current = onRoadPresetSelect;
-    }, [items, onRoadPresetSelect, onSelect, roadOverlayItems]);
+    }, [items, onRoadPresetSelect, onSelect, roadOverlayItems, trackingLookupItems]);
 
     useEffect(() => {
         mapStyleRef.current = mapStyle;
@@ -1287,6 +1435,22 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         mapRef.current?.getCanvas().style.setProperty('cursor', '');
     }, []);
 
+    const handleTrackingOverlayPick = useCallback((event: any) => {
+        const pickedId = event.features?.[0]?.properties?.id;
+        const picked = trackingLookupItemsRef.current.find((item) => item.id === pickedId);
+        if (picked) {
+            onSelectRef.current(picked);
+        }
+    }, []);
+
+    const handleTrackingOverlayPointerEnter = useCallback(() => {
+        mapRef.current?.getCanvas().style.setProperty('cursor', 'pointer');
+    }, []);
+
+    const handleTrackingOverlayPointerLeave = useCallback(() => {
+        mapRef.current?.getCanvas().style.setProperty('cursor', '');
+    }, []);
+
     const bindCctvInteractions = useCallback((map: import('maplibre-gl').Map) => {
         map.off('click', CCTV_LAYER, handleCctvPick);
         map.off('mouseenter', CCTV_LAYER, handleCctvPointerEnter);
@@ -1321,6 +1485,22 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         });
     }, [handleRoadPresetPick, handleRoadPresetPointerEnter, handleRoadPresetPointerLeave]);
 
+    const bindTrackingOverlayInteractions = useCallback((map: import('maplibre-gl').Map) => {
+        if (!map.getLayer(TRACKING_POINT_LAYER)) return;
+
+        map.off('click', TRACKING_POINT_LAYER, handleTrackingOverlayPick);
+        map.off('mouseenter', TRACKING_POINT_LAYER, handleTrackingOverlayPointerEnter);
+        map.off('mouseleave', TRACKING_POINT_LAYER, handleTrackingOverlayPointerLeave);
+
+        map.on('click', TRACKING_POINT_LAYER, handleTrackingOverlayPick);
+        map.on('mouseenter', TRACKING_POINT_LAYER, handleTrackingOverlayPointerEnter);
+        map.on('mouseleave', TRACKING_POINT_LAYER, handleTrackingOverlayPointerLeave);
+    }, [
+        handleTrackingOverlayPick,
+        handleTrackingOverlayPointerEnter,
+        handleTrackingOverlayPointerLeave,
+    ]);
+
     const syncDomMarkers = useCallback(() => {
         const map = mapRef.current;
         if (!map || !mapReadyRef.current) return;
@@ -1338,18 +1518,23 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         syncCctvLayers(map, items);
         syncRouteMonitoringLayers(map, routeMonitoringPlan, items);
         syncRoutePreviewLayers(map, routePreviewPlan, items);
+        syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItems);
         bindCctvInteractions(map);
         bindRoadPresetInteractions(map);
+        bindTrackingOverlayInteractions(map);
         syncDomMarkers();
         liftOperationalLayers(map);
     }, [
         bindCctvInteractions,
         bindRoadPresetInteractions,
+        bindTrackingOverlayInteractions,
         items,
         roadOverlayItems,
         roadPreset,
         routeMonitoringPlan,
         routePreviewPlan,
+        trackingLookupItems,
+        trackingOverlay,
         syncDomMarkers,
     ]);
 
@@ -1485,9 +1670,11 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
                 syncCctvLayers(map, itemsRef.current);
                 syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
                 syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
+                syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItemsRef.current);
                 bindCctvInteractions(map);
                 bindDroneInteractions(map);
                 bindRoadPresetInteractions(map);
+                bindTrackingOverlayInteractions(map);
                 syncDomMarkers();
                 liftOperationalLayers(map);
 
@@ -1553,6 +1740,7 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         bindCctvInteractions,
         bindDroneInteractions,
         bindRoadPresetInteractions,
+        bindTrackingOverlayInteractions,
         requestBaseMapViewportRefresh,
         requestSatelliteRefresh,
         revokeSatelliteObjectUrl,
@@ -1583,9 +1771,11 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
             syncCctvLayers(map, itemsRef.current);
             syncRouteMonitoringLayers(map, routeMonitoringPlan, itemsRef.current);
             syncRoutePreviewLayers(map, routePreviewPlan, itemsRef.current);
+            syncTrackingOverlayLayers(map, trackingOverlay, trackingLookupItemsRef.current);
             bindCctvInteractions(map);
             bindDroneInteractions(map);
             bindRoadPresetInteractions(map);
+            bindTrackingOverlayInteractions(map);
             syncDomMarkers();
             liftOperationalLayers(map);
             timeoutId = window.setTimeout(() => {
@@ -1657,11 +1847,13 @@ const CctvMap = forwardRef<CctvMapHandle, Props>(({
         bindCctvInteractions,
         bindDroneInteractions,
         bindRoadPresetInteractions,
+        bindTrackingOverlayInteractions,
         fetchGoogleBasemapMetadata,
         mapStyle,
         roadPreset,
         routeMonitoringPlan,
         routePreviewPlan,
+        trackingOverlay,
         syncDomMarkers,
         syncDroneVisibility,
     ]);
