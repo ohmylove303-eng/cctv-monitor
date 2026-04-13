@@ -706,6 +706,7 @@ function normalizeTrackingResult(
         const cctvId = String(hit.cctv_id ?? hit.camera_id ?? hit.cctvId ?? hit.cameraId ?? '');
         const cctvName = String(hit.cctv_name ?? hit.camera_name ?? hit.cctvName ?? hit.cameraName ?? '');
         const matchedCamera = scope.find((camera) => camera.id === cctvId || camera.name === cctvName);
+        const plateCandidates = Array.isArray(hit.plate_candidates) ? hit.plate_candidates.map(String) : [];
         const expectedEtaMinutes = typeof hit.expected_eta_minutes === 'number'
             ? hit.expected_eta_minutes
             : typeof hit.expectedEtaMinutes === 'number'
@@ -735,6 +736,24 @@ function normalizeTrackingResult(
                     : assessedTravel.label,
             }
             : assessedTravel;
+        const rawOcrDiagnostics = typeof hit.ocr_diagnostics === 'object' && hit.ocr_diagnostics
+            ? hit.ocr_diagnostics as Record<string, unknown>
+            : typeof hit.ocrDiagnostics === 'object' && hit.ocrDiagnostics
+                ? hit.ocrDiagnostics as Record<string, unknown>
+                : null;
+        const ocrStatus: ForensicResult['ocr_status'] =
+            hit.ocr_status === 'ocr_active'
+            || hit.ocr_status === 'target_hint_only'
+            || hit.ocr_status === 'ocr_unavailable'
+            || hit.ocr_status === 'skipped_no_vehicle'
+            || hit.ocr_status === 'skipped_no_frames'
+            || hit.ocr_status === 'not_available'
+                ? hit.ocr_status as ForensicResult['ocr_status']
+                : plateCandidates.length > 0
+                    ? 'ocr_active'
+                    : typeof hit.plate === 'string'
+                        ? 'target_hint_only'
+                        : 'not_available';
 
         return {
             id: String(hit.id ?? `${cctvId || cctvName || 'hit'}-${index}`),
@@ -745,7 +764,7 @@ function normalizeTrackingResult(
             timestamp: String(hit.timestamp ?? hit.detected_at ?? new Date().toISOString()),
             confidence: Number(hit.confidence ?? hit.score ?? 0),
             plate: typeof hit.plate === 'string' ? hit.plate : undefined,
-            plate_candidates: Array.isArray(hit.plate_candidates) ? hit.plate_candidates.map(String) : [],
+            plate_candidates: plateCandidates,
             color: typeof hit.color === 'string' ? hit.color : undefined,
             vehicle_type: typeof hit.vehicle_type === 'string'
                 ? hit.vehicle_type
@@ -766,6 +785,27 @@ function normalizeTrackingResult(
                 : typeof hit.isRouteFocus === 'boolean'
                     ? hit.isRouteFocus
                     : matchedCamera?.isRouteFocus,
+            ocr_status: ocrStatus,
+            ocr_engine: typeof hit.ocr_engine === 'string'
+                ? hit.ocr_engine
+                : typeof hit.ocrEngine === 'string'
+                    ? hit.ocrEngine
+                    : null,
+            ocr_diagnostics: rawOcrDiagnostics
+                ? {
+                    frame_batches: Number(rawOcrDiagnostics.frame_batches ?? 0),
+                    observation_count: Number(rawOcrDiagnostics.observation_count ?? 0),
+                    raw_candidate_count: Number(rawOcrDiagnostics.raw_candidate_count ?? 0),
+                    viable_candidate_count: Number(rawOcrDiagnostics.viable_candidate_count ?? 0),
+                    final_candidate_count: Number(rawOcrDiagnostics.final_candidate_count ?? 0),
+                    suppressed_region_variants: Number(rawOcrDiagnostics.suppressed_region_variants ?? 0),
+                    top_candidate_support: Number(rawOcrDiagnostics.top_candidate_support ?? 0),
+                    top_candidate_weight: Number(rawOcrDiagnostics.top_candidate_weight ?? 0),
+                    top_candidate_reason: typeof rawOcrDiagnostics.top_candidate_reason === 'string'
+                        ? String(rawOcrDiagnostics.top_candidate_reason)
+                        : null,
+                }
+                : null,
         };
     });
 
@@ -1116,6 +1156,12 @@ export default function ForensicModal({
                     id: hit.id,
                     cctv_id: hit.cctv_id,
                     cctv_name: hit.cctv_name,
+                    ocr_summary: buildOcrEvidenceSummary({
+                        ocr_status: hit.ocr_status ?? 'not_available',
+                        ocr_engine: hit.ocr_engine ?? null,
+                        plate_candidates: hit.plate_candidates ?? [],
+                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                    }),
                     hints: buildTrackingHintChips(hit, {
                         suggestedTrackingPlate,
                         effectiveTargetPlate,
@@ -2504,6 +2550,18 @@ export default function ForensicModal({
                                         resolvedColorSourceLabel,
                                         resolvedVehicleTypeSourceLabel,
                                     });
+                                    const trackingOcrSummary = buildOcrEvidenceSummary({
+                                        ocr_status: hit.ocr_status ?? 'not_available',
+                                        ocr_engine: hit.ocr_engine ?? null,
+                                        plate_candidates: hit.plate_candidates ?? [],
+                                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                                    });
+                                    const trackingOcrChips = buildOcrSummaryChips({
+                                        ocr_status: hit.ocr_status ?? 'not_available',
+                                        ocr_engine: hit.ocr_engine ?? null,
+                                        plate_candidates: hit.plate_candidates ?? [],
+                                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                                    });
                                     return (
                                     <div
                                         key={hit.id}
@@ -2592,6 +2650,50 @@ export default function ForensicModal({
                                                 ? hit.plate_candidates.join(', ')
                                                 : (hit.plate || effectiveTargetPlate || '미상')} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
                                         </div>
+                                        {trackingOcrChips.length > 0 && (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                                                {trackingOcrChips.map((chip) => {
+                                                    const toneStyles = chip.tone === 'blue'
+                                                        ? {
+                                                            background: 'rgba(56,189,248,0.10)',
+                                                            border: '1px solid rgba(56,189,248,0.18)',
+                                                            color: '#bae6fd',
+                                                        }
+                                                        : chip.tone === 'amber'
+                                                            ? {
+                                                                background: 'rgba(245,158,11,0.10)',
+                                                                border: '1px solid rgba(245,158,11,0.18)',
+                                                                color: '#fde68a',
+                                                            }
+                                                            : {
+                                                                background: 'rgba(148,163,184,0.10)',
+                                                                border: '1px solid rgba(148,163,184,0.18)',
+                                                                color: '#cbd5e1',
+                                                            };
+                                                    return (
+                                                        <div
+                                                            key={`${hit.id}-ocr-${chip.key}`}
+                                                            style={{
+                                                                padding: '6px 8px',
+                                                                borderRadius: 999,
+                                                                background: toneStyles.background,
+                                                                border: toneStyles.border,
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                color: toneStyles.color,
+                                                            }}
+                                                        >
+                                                            {chip.label}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {trackingOcrSummary?.diagnostics?.top_candidate_reason && (
+                                            <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.6, marginTop: 7 }}>
+                                                OCR 근거: {trackingOcrSummary.diagnostics.top_candidate_reason}
+                                            </div>
+                                        )}
                                         {trackingHintChips.length > 0 && (
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                                                 {trackingHintChips.map((chip) => {

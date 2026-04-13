@@ -150,6 +150,9 @@ export interface ForensicTrackingHit {
     travel_assessment_label?: string;
     travel_order?: number;
     is_route_focus?: boolean;
+    ocr_status?: ForensicResult['ocr_status'];
+    ocr_engine?: string | null;
+    ocr_diagnostics?: ForensicOcrDiagnostics | null;
 }
 
 export interface ForensicTrackingResult {
