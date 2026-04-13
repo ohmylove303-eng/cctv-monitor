@@ -1089,6 +1089,8 @@ export default function ForensicModal({
     const qualityBoostedCount = bundleScope.filter((camera) => getCameraQualityScore(cameraQualityTelemetry[camera.id]) > 0).length;
     const currentStreamUrl = cctv.hlsUrl || cctv.streamUrl || '';
     const ocrActionGuidance = analysisResult ? getOcrActionGuidance(analysisResult) : null;
+    const analysisOcrSummary = buildOcrEvidenceSummary(analysisResult);
+    const analysisOcrChips = buildOcrSummaryChips(analysisResult);
     const rankedPlateCandidates = analysisResult?.ocr_status === 'ocr_active'
         ? analysisResult.plate_candidates ?? []
         : [];
@@ -2160,6 +2162,64 @@ export default function ForensicModal({
                                     </div>
                                 </div>
                             </div>
+                            {(analysisOcrChips.length > 0 || analysisOcrSummary?.diagnostics?.top_candidate_reason) && (
+                                <div
+                                    style={{
+                                        padding: '8px 10px',
+                                        background: 'rgba(56,189,248,0.06)',
+                                        border: '1px solid rgba(56,189,248,0.16)',
+                                        borderRadius: 8,
+                                    }}
+                                >
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#bae6fd', marginBottom: 7 }}>
+                                        단일 OCR 요약
+                                    </div>
+                                    {analysisOcrChips.length > 0 && (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                            {analysisOcrChips.map((chip) => {
+                                                const toneStyles = chip.tone === 'blue'
+                                                    ? {
+                                                        background: 'rgba(56,189,248,0.10)',
+                                                        border: '1px solid rgba(56,189,248,0.18)',
+                                                        color: '#bae6fd',
+                                                    }
+                                                    : chip.tone === 'amber'
+                                                        ? {
+                                                            background: 'rgba(245,158,11,0.10)',
+                                                            border: '1px solid rgba(245,158,11,0.18)',
+                                                            color: '#fde68a',
+                                                        }
+                                                        : {
+                                                            background: 'rgba(148,163,184,0.10)',
+                                                            border: '1px solid rgba(148,163,184,0.18)',
+                                                            color: '#cbd5e1',
+                                                        };
+                                                return (
+                                                    <div
+                                                        key={`analysis-ocr-${chip.key}`}
+                                                        style={{
+                                                            padding: '6px 8px',
+                                                            borderRadius: 999,
+                                                            background: toneStyles.background,
+                                                            border: toneStyles.border,
+                                                            fontSize: 9,
+                                                            fontWeight: 700,
+                                                            color: toneStyles.color,
+                                                        }}
+                                                    >
+                                                        {chip.label}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    {analysisOcrSummary?.diagnostics?.top_candidate_reason && (
+                                        <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.6, marginTop: 7 }}>
+                                            대표 근거: {analysisOcrSummary.diagnostics.top_candidate_reason}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div
                                 style={{
