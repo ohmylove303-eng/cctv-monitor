@@ -704,6 +704,58 @@ export default function ForensicModal({
         || targetColor !== '미지정'
         || targetVehicleType !== '미지정'
     );
+    const resolvedPlateSourceLabel = effectiveTargetPlate
+        ? targetPlate.trim()
+            ? (targetPlate.trim() === suggestedTrackingPlate && !targetPlateEditedRef.current
+                ? `${suggestedTrackingPlateLabel} 자동 반영`
+                : '직접 입력')
+            : analysisResult?.target_plate
+                ? '분석 입력 단서'
+                : bundleAnalysisSummary?.suggestedPlate
+                    ? '노선 상위 후보'
+                    : '자동 단서'
+        : '';
+    const resolvedColorSourceLabel = effectiveTargetColor
+        ? targetColor !== '미지정'
+            ? '직접 선택'
+            : analysisResult?.target_color
+                ? '단일 분석 결과'
+                : bundleAnalysisSummary?.suggestedColor
+                    ? '노선 상위 후보'
+                    : '자동 단서'
+        : '';
+    const resolvedVehicleTypeSourceLabel = effectiveTargetVehicleType
+        ? targetVehicleType !== '미지정'
+            ? '직접 선택'
+            : analysisResult?.target_vehicle_type
+                ? '단일 분석 결과'
+                : bundleAnalysisSummary?.suggestedVehicleType
+                    ? '노선 상위 후보'
+                    : '자동 단서'
+        : '';
+    const trackingInputSummary = [
+        effectiveTargetPlate
+            ? {
+                label: '차량번호',
+                value: effectiveTargetPlate,
+                source: resolvedPlateSourceLabel,
+            }
+            : null,
+        effectiveTargetColor
+            ? {
+                label: '색상',
+                value: effectiveTargetColor,
+                source: resolvedColorSourceLabel,
+            }
+            : null,
+        effectiveTargetVehicleType
+            ? {
+                label: '차종',
+                value: effectiveTargetVehicleType,
+                source: resolvedVehicleTypeSourceLabel,
+            }
+            : null,
+    ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
 
     useEffect(() => {
         if (phase !== 'analyzed' || !suggestedTrackingPlate) {
@@ -1876,6 +1928,43 @@ export default function ForensicModal({
                                 {trackingResult.origin_timestamp && (
                                     <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
                                         기준 시각 {new Date(trackingResult.origin_timestamp).toLocaleString('ko-KR')}
+                                    </div>
+                                )}
+                                {trackingInputSummary.length > 0 && (
+                                    <div
+                                        style={{
+                                            marginTop: 10,
+                                            paddingTop: 10,
+                                            borderTop: '1px solid rgba(56,189,248,0.14)',
+                                        }}
+                                    >
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: '#bae6fd', marginBottom: 8 }}>
+                                            이번 추적에 사용된 단서
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                            {trackingInputSummary.map((item) => (
+                                                <div
+                                                    key={`${item.label}-${item.value}-${item.source}`}
+                                                    style={{
+                                                        minWidth: 0,
+                                                        padding: '8px 10px',
+                                                        borderRadius: 8,
+                                                        background: 'rgba(15,23,42,0.28)',
+                                                        border: '1px solid rgba(125,211,252,0.12)',
+                                                    }}
+                                                >
+                                                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>
+                                                        {item.label}
+                                                    </div>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>
+                                                        {item.value}
+                                                    </div>
+                                                    <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 4 }}>
+                                                        {item.source}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
                             </div>
