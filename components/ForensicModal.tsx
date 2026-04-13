@@ -414,6 +414,114 @@ function buildTrackingHintChips(
     return chips;
 }
 
+function buildBundleHintChips(
+    hit: BundleAnalysisHit,
+    fallback: {
+        requestedPlate: string;
+        requestedColor: string;
+        requestedVehicleType: string;
+        suggestedPlate: string;
+        suggestedColor: string;
+        suggestedVehicleType: string;
+    }
+) {
+    const chips: Array<{
+        key: string;
+        label: string;
+        value: string;
+        source: string;
+        tone: 'blue' | 'emerald' | 'violet';
+    }> = [];
+
+    if (hit.plate_candidates.length > 0) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 후보',
+            value: hit.plate_candidates[0],
+            source: '이 카메라 OCR 후보',
+            tone: 'blue',
+        });
+    } else if (hit.target_plate) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 단서',
+            value: hit.target_plate,
+            source: '이 카메라 입력 단서',
+            tone: 'blue',
+        });
+    } else if (fallback.suggestedPlate) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 단서',
+            value: fallback.suggestedPlate,
+            source: '노선 상위 후보',
+            tone: 'blue',
+        });
+    } else if (fallback.requestedPlate) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 단서',
+            value: fallback.requestedPlate,
+            source: '직접 입력',
+            tone: 'blue',
+        });
+    }
+
+    if (hit.target_color) {
+        chips.push({
+            key: 'color',
+            label: '색상',
+            value: hit.target_color,
+            source: '이 카메라 판정',
+            tone: 'emerald',
+        });
+    } else if (fallback.suggestedColor) {
+        chips.push({
+            key: 'color',
+            label: '색상',
+            value: fallback.suggestedColor,
+            source: '노선 상위 후보',
+            tone: 'emerald',
+        });
+    } else if (fallback.requestedColor) {
+        chips.push({
+            key: 'color',
+            label: '색상',
+            value: fallback.requestedColor,
+            source: '직접 선택',
+            tone: 'emerald',
+        });
+    }
+
+    if (hit.target_vehicle_type) {
+        chips.push({
+            key: 'vehicleType',
+            label: '차종',
+            value: hit.target_vehicle_type,
+            source: '이 카메라 판정',
+            tone: 'violet',
+        });
+    } else if (fallback.suggestedVehicleType) {
+        chips.push({
+            key: 'vehicleType',
+            label: '차종',
+            value: fallback.suggestedVehicleType,
+            source: '노선 상위 후보',
+            tone: 'violet',
+        });
+    } else if (fallback.requestedVehicleType) {
+        chips.push({
+            key: 'vehicleType',
+            label: '차종',
+            value: fallback.requestedVehicleType,
+            source: '직접 선택',
+            tone: 'violet',
+        });
+    }
+
+    return chips;
+}
+
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
     const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
         ? raw.quality_report as Record<string, unknown>
@@ -841,6 +949,51 @@ export default function ForensicModal({
             }
             : null,
     ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
+    const bundleRequestedHints = [
+        targetPlate.trim()
+            ? { label: '차량번호', value: targetPlate.trim(), source: '직접 입력' }
+            : null,
+        targetColor !== '미지정'
+            ? { label: '색상', value: targetColor, source: '직접 선택' }
+            : null,
+        targetVehicleType !== '미지정'
+            ? { label: '차종', value: targetVehicleType, source: '직접 선택' }
+            : null,
+    ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
+    const bundleSuggestedHints = [
+        bundleAnalysisSummary?.suggestedPlate
+            ? { label: '차량번호', value: bundleAnalysisSummary.suggestedPlate, source: '노선 상위 후보' }
+            : null,
+        bundleAnalysisSummary?.suggestedColor
+            ? { label: '색상', value: bundleAnalysisSummary.suggestedColor, source: '노선 상위 후보' }
+            : null,
+        bundleAnalysisSummary?.suggestedVehicleType
+            ? { label: '차종', value: bundleAnalysisSummary.suggestedVehicleType, source: '노선 상위 후보' }
+            : null,
+    ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
+    const bundleEvidencePayload = bundleAnalysisSummary
+        ? {
+            bundle_analysis: bundleAnalysisSummary,
+            bundle_context: {
+                requested_hints: bundleRequestedHints,
+                suggested_hints: bundleSuggestedHints,
+                route_focus_summary: routeFocusSummary,
+                hit_hint_sources: bundleAnalysisSummary.hits.map((hit) => ({
+                    cctv_id: hit.cctv_id,
+                    cctv_name: hit.cctv_name,
+                    analysis_stage: hit.analysis_stage,
+                    hints: buildBundleHintChips(hit, {
+                        requestedPlate: targetPlate.trim(),
+                        requestedColor: targetColor !== '미지정' ? targetColor : '',
+                        requestedVehicleType: targetVehicleType !== '미지정' ? targetVehicleType : '',
+                        suggestedPlate: bundleAnalysisSummary.suggestedPlate || '',
+                        suggestedColor: bundleAnalysisSummary.suggestedColor || '',
+                        suggestedVehicleType: bundleAnalysisSummary.suggestedVehicleType || '',
+                    }),
+                })),
+            },
+        }
+        : null;
     const trackingEvidencePayload = trackingResult
         ? {
             analysis: analysisResult,
@@ -2425,7 +2578,10 @@ export default function ForensicModal({
                             {bundleAnalysisSummary && (
                                 <button
                                     className="btn-neon"
-                                    onClick={() => exportEvidence(bundleAnalysisSummary, `route_bundle_analysis_${cctv.id.slice(0, 8)}.json`)}
+                                    onClick={() => exportEvidence(
+                                        bundleEvidencePayload ?? bundleAnalysisSummary,
+                                        `route_bundle_analysis_${cctv.id.slice(0, 8)}.json`
+                                    )}
                                 >
                                     노선 분석 저장
                                 </button>
