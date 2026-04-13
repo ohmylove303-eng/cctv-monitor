@@ -465,6 +465,52 @@ function buildBundleOcrOverview(summary: BundleAnalysisSummary | null | undefine
     };
 }
 
+function buildTrackingOcrOverview(summary: ForensicTrackingResult | null | undefined) {
+    if (!summary) {
+        return null;
+    }
+
+    const ocrActiveHits = summary.hits.filter((hit) => hit.ocr_status === 'ocr_active');
+    const hitsWithCandidates = summary.hits.filter((hit) => (hit.plate_candidates?.length ?? 0) > 0);
+    const hintOnlyHits = summary.hits.filter((hit) => hit.ocr_status === 'target_hint_only');
+    const skippedHits = summary.hits.filter(
+        (hit) => hit.ocr_status === 'skipped_no_vehicle' || hit.ocr_status === 'skipped_no_frames'
+    );
+    const totalFinalCandidates = ocrActiveHits.reduce(
+        (sum, hit) => sum + (hit.ocr_diagnostics?.final_candidate_count ?? hit.plate_candidates?.length ?? 0),
+        0
+    );
+    const strongestSupport = ocrActiveHits.reduce(
+        (max, hit) => Math.max(max, hit.ocr_diagnostics?.top_candidate_support ?? 0),
+        0
+    );
+    const representativeReason = [...ocrActiveHits]
+        .sort((left, right) =>
+            (right.ocr_diagnostics?.top_candidate_support ?? 0) - (left.ocr_diagnostics?.top_candidate_support ?? 0)
+            || (right.confidence - left.confidence)
+        )
+        .find((hit) => Boolean(hit.ocr_diagnostics?.top_candidate_reason))
+        ?.ocr_diagnostics?.top_candidate_reason ?? null;
+
+    if (
+        hitsWithCandidates.length === 0
+        && hintOnlyHits.length === 0
+        && skippedHits.length === 0
+        && totalFinalCandidates === 0
+    ) {
+        return null;
+    }
+
+    return {
+        hitsWithCandidates: hitsWithCandidates.length,
+        hintOnlyHits: hintOnlyHits.length,
+        skippedHits: skippedHits.length,
+        totalFinalCandidates,
+        strongestSupport,
+        representativeReason,
+    };
+}
+
 function buildTrackingHintChips(
     hit: Pick<ForensicTrackingResult['hits'][number], 'plate_candidates' | 'plate' | 'color' | 'vehicle_type'>,
     fallback: {
@@ -1151,6 +1197,7 @@ export default function ForensicModal({
             : null,
     ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
     const bundleOcrOverview = buildBundleOcrOverview(bundleAnalysisSummary);
+    const trackingOcrOverview = buildTrackingOcrOverview(trackingResult);
     const bundleEvidencePayload = bundleAnalysisSummary
         ? {
             bundle_analysis: bundleAnalysisSummary,
@@ -2477,6 +2524,28 @@ export default function ForensicModal({
                                 {trackingResult.origin_timestamp && (
                                     <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
                                         기준 시각 {new Date(trackingResult.origin_timestamp).toLocaleString('ko-KR')}
+                                    </div>
+                                )}
+                                {trackingOcrOverview && (
+                                    <div
+                                        style={{
+                                            marginTop: 9,
+                                            padding: '8px 10px',
+                                            background: 'rgba(56,189,248,0.06)',
+                                            border: '1px solid rgba(56,189,248,0.16)',
+                                            borderRadius: 8,
+                                            fontSize: 10,
+                                            color: '#bae6fd',
+                                            lineHeight: 1.7,
+                                            whiteSpace: 'pre-line',
+                                        }}
+                                    >
+                                        추적 OCR 요약: 후보 확인 {trackingOcrOverview.hitsWithCandidates}대
+                                        {trackingOcrOverview.totalFinalCandidates > 0 ? ` · 최종 후보 ${trackingOcrOverview.totalFinalCandidates}개` : ''}
+                                        {trackingOcrOverview.strongestSupport > 0 ? ` · 최고 지지 ${trackingOcrOverview.strongestSupport}프레임` : ''}
+                                        {trackingOcrOverview.hintOnlyHits > 0 ? ` · 입력 단서 기반 ${trackingOcrOverview.hintOnlyHits}대` : ''}
+                                        {trackingOcrOverview.skippedHits > 0 ? ` · OCR 생략 ${trackingOcrOverview.skippedHits}대` : ''}
+                                        {trackingOcrOverview.representativeReason ? `\n대표 근거: ${trackingOcrOverview.representativeReason}` : ''}
                                     </div>
                                 )}
                                 {trackingInputSummary.length > 0 && (
