@@ -419,6 +419,52 @@ function buildOcrSummaryChips(
     return chips;
 }
 
+function buildBundleOcrOverview(summary: BundleAnalysisSummary | null | undefined) {
+    if (!summary) {
+        return null;
+    }
+
+    const ocrActiveHits = summary.hits.filter((hit) => hit.ocr_status === 'ocr_active');
+    const hitsWithCandidates = summary.hits.filter((hit) => hit.plate_candidates.length > 0);
+    const hintOnlyHits = summary.hits.filter((hit) => hit.ocr_status === 'target_hint_only');
+    const skippedHits = summary.hits.filter(
+        (hit) => hit.ocr_status === 'skipped_no_vehicle' || hit.ocr_status === 'skipped_no_frames'
+    );
+    const totalFinalCandidates = ocrActiveHits.reduce(
+        (sum, hit) => sum + (hit.ocr_diagnostics?.final_candidate_count ?? hit.plate_candidates.length),
+        0
+    );
+    const strongestSupport = ocrActiveHits.reduce(
+        (max, hit) => Math.max(max, hit.ocr_diagnostics?.top_candidate_support ?? 0),
+        0
+    );
+    const representativeReason = [...ocrActiveHits]
+        .sort((left, right) =>
+            (right.ocr_diagnostics?.top_candidate_support ?? 0) - (left.ocr_diagnostics?.top_candidate_support ?? 0)
+            || (right.confidence - left.confidence)
+        )
+        .find((hit) => Boolean(hit.ocr_diagnostics?.top_candidate_reason))
+        ?.ocr_diagnostics?.top_candidate_reason ?? null;
+
+    if (
+        hitsWithCandidates.length === 0
+        && hintOnlyHits.length === 0
+        && skippedHits.length === 0
+        && totalFinalCandidates === 0
+    ) {
+        return null;
+    }
+
+    return {
+        hitsWithCandidates: hitsWithCandidates.length,
+        hintOnlyHits: hintOnlyHits.length,
+        skippedHits: skippedHits.length,
+        totalFinalCandidates,
+        strongestSupport,
+        representativeReason,
+    };
+}
+
 function buildTrackingHintChips(
     hit: Pick<ForensicTrackingResult['hits'][number], 'plate_candidates' | 'plate' | 'color' | 'vehicle_type'>,
     fallback: {
@@ -1104,6 +1150,7 @@ export default function ForensicModal({
             ? { label: '차종', value: bundleAnalysisSummary.suggestedVehicleType, source: '노선 상위 후보' }
             : null,
     ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
+    const bundleOcrOverview = buildBundleOcrOverview(bundleAnalysisSummary);
     const bundleEvidencePayload = bundleAnalysisSummary
         ? {
             bundle_analysis: bundleAnalysisSummary,
@@ -2264,6 +2311,28 @@ export default function ForensicModal({
                                     {bundleAnalysisSummary.suggestedColor ? ` · 색상 ${bundleAnalysisSummary.suggestedColor}` : ''}
                                     {bundleAnalysisSummary.suggestedVehicleType ? ` · 차종 ${bundleAnalysisSummary.suggestedVehicleType}` : ''}
                                 </div>
+                                {bundleOcrOverview && (
+                                    <div
+                                        style={{
+                                            marginTop: 9,
+                                            padding: '8px 10px',
+                                            background: 'rgba(56,189,248,0.06)',
+                                            border: '1px solid rgba(56,189,248,0.16)',
+                                            borderRadius: 8,
+                                            fontSize: 10,
+                                            color: '#bae6fd',
+                                            lineHeight: 1.7,
+                                            whiteSpace: 'pre-line',
+                                        }}
+                                    >
+                                        번들 OCR 요약: 후보 확인 {bundleOcrOverview.hitsWithCandidates}대
+                                        {bundleOcrOverview.totalFinalCandidates > 0 ? ` · 최종 후보 ${bundleOcrOverview.totalFinalCandidates}개` : ''}
+                                        {bundleOcrOverview.strongestSupport > 0 ? ` · 최고 지지 ${bundleOcrOverview.strongestSupport}프레임` : ''}
+                                        {bundleOcrOverview.hintOnlyHits > 0 ? ` · 입력 단서 기반 ${bundleOcrOverview.hintOnlyHits}대` : ''}
+                                        {bundleOcrOverview.skippedHits > 0 ? ` · OCR 생략 ${bundleOcrOverview.skippedHits}대` : ''}
+                                        {bundleOcrOverview.representativeReason ? `\n대표 근거: ${bundleOcrOverview.representativeReason}` : ''}
+                                    </div>
+                                )}
                             </div>
 
                             {bundleAnalysisSummary.hits.map((hit) => (
