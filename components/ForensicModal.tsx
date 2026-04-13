@@ -360,6 +360,65 @@ function buildOcrEvidenceSummary(
     };
 }
 
+function buildOcrSummaryChips(
+    result: Pick<ForensicResult, 'ocr_status' | 'ocr_engine' | 'plate_candidates' | 'ocr_diagnostics'> | null | undefined
+) {
+    const summary = buildOcrEvidenceSummary(result);
+    if (!summary) {
+        return [];
+    }
+
+    const chips: Array<{
+        key: string;
+        label: string;
+        tone: 'blue' | 'amber' | 'slate';
+    }> = [];
+
+    if (summary.status === 'ocr_active' && summary.diagnostics) {
+        chips.push({
+            key: 'candidateCount',
+            label: `OCR 후보 ${summary.diagnostics.final_candidate_count}개`,
+            tone: 'blue',
+        });
+
+        if (summary.diagnostics.top_candidate_support > 0) {
+            chips.push({
+                key: 'support',
+                label: `지지 ${summary.diagnostics.top_candidate_support}프레임`,
+                tone: 'blue',
+            });
+        }
+    } else if (summary.status === 'target_hint_only') {
+        chips.push({
+            key: 'targetHintOnly',
+            label: '입력 단서 기반',
+            tone: 'amber',
+        });
+    } else if (summary.status === 'skipped_no_vehicle' || summary.status === 'skipped_no_frames') {
+        chips.push({
+            key: 'skipped',
+            label: 'OCR 건너뜀',
+            tone: 'slate',
+        });
+    } else if (summary.status === 'ocr_unavailable') {
+        chips.push({
+            key: 'ocrUnavailable',
+            label: 'OCR 초기화 실패',
+            tone: 'amber',
+        });
+    }
+
+    if (summary.engine) {
+        chips.push({
+            key: 'engine',
+            label: summary.engine,
+            tone: 'slate',
+        });
+    }
+
+    return chips;
+}
+
 function buildTrackingHintChips(
     hit: Pick<ForensicTrackingResult['hits'][number], 'plate_candidates' | 'plate' | 'color' | 'vehicle_type'>,
     fallback: {
@@ -2162,45 +2221,106 @@ export default function ForensicModal({
                             </div>
 
                             {bundleAnalysisSummary.hits.map((hit) => (
-                                <div
-                                    key={`${hit.cctv_id}-${hit.time_window_label || 'na'}`}
-                                    style={{
-                                        background: 'rgba(255,255,255,0.03)',
-                                        border: '1px solid rgba(255,255,255,0.07)',
-                                        borderRadius: 8,
-                                        padding: '10px 12px',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
-                                                {hit.cctv_name}
+                                (() => {
+                                    const bundleOcrSummary = buildOcrEvidenceSummary({
+                                        ocr_status: hit.ocr_status,
+                                        ocr_engine: hit.ocr_engine ?? null,
+                                        plate_candidates: hit.plate_candidates,
+                                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                                    });
+                                    const bundleOcrChips = buildOcrSummaryChips({
+                                        ocr_status: hit.ocr_status,
+                                        ocr_engine: hit.ocr_engine ?? null,
+                                        plate_candidates: hit.plate_candidates,
+                                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                                    });
+
+                                    return (
+                                        <div
+                                            key={`${hit.cctv_id}-${hit.time_window_label || 'na'}`}
+                                            style={{
+                                                background: 'rgba(255,255,255,0.03)',
+                                                border: '1px solid rgba(255,255,255,0.07)',
+                                                borderRadius: 8,
+                                                padding: '10px 12px',
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                                                <div>
+                                                    <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
+                                                        {hit.cctv_name}
+                                                    </div>
+                                                    <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                        {hit.region}
+                                                        {hit.time_window_label ? ` · ${hit.time_window_label}` : ''}
+                                                        {hit.expected_eta_minutes !== undefined ? ` · ETA ${hit.expected_eta_minutes}분` : ''}
+                                                        {hit.is_route_focus ? ' · 집중군' : ''}
+                                                        {hit.analysis_stage === 'verify' ? ' · 2차 정밀' : ' · 1차 스캔'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 800, color: '#22c55e' }}>
+                                                        {hit.confidence.toFixed(1)}%
+                                                    </div>
+                                                    <div style={{ fontSize: 10, color: '#64748b' }}>
+                                                        검출 {hit.vehicle_count}대
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: 10, color: '#64748b' }}>
-                                                {hit.region}
-                                                {hit.time_window_label ? ` · ${hit.time_window_label}` : ''}
-                                                {hit.expected_eta_minutes !== undefined ? ` · ETA ${hit.expected_eta_minutes}분` : ''}
-                                                {hit.is_route_focus ? ' · 집중군' : ''}
-                                                {hit.analysis_stage === 'verify' ? ' · 2차 정밀' : ' · 1차 스캔'}
+                                            <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
+                                                차량번호 단서 {hit.plate_candidates.length > 0 ? hit.plate_candidates.join(', ') : (hit.target_plate || '없음')}
+                                                {' · '}
+                                                색상 {hit.target_color || '미상'}
+                                                {' · '}
+                                                차종 {hit.target_vehicle_type || '미상'}
                                             </div>
+                                            {bundleOcrChips.length > 0 && (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                                                    {bundleOcrChips.map((chip) => {
+                                                        const toneStyles = chip.tone === 'blue'
+                                                            ? {
+                                                                background: 'rgba(56,189,248,0.10)',
+                                                                border: '1px solid rgba(56,189,248,0.18)',
+                                                                color: '#bae6fd',
+                                                            }
+                                                            : chip.tone === 'amber'
+                                                                ? {
+                                                                    background: 'rgba(245,158,11,0.10)',
+                                                                    border: '1px solid rgba(245,158,11,0.18)',
+                                                                    color: '#fde68a',
+                                                                }
+                                                                : {
+                                                                    background: 'rgba(148,163,184,0.10)',
+                                                                    border: '1px solid rgba(148,163,184,0.18)',
+                                                                    color: '#cbd5e1',
+                                                                };
+                                                        return (
+                                                            <div
+                                                                key={`${hit.cctv_id}-${chip.key}`}
+                                                                style={{
+                                                                    padding: '6px 8px',
+                                                                    borderRadius: 999,
+                                                                    background: toneStyles.background,
+                                                                    border: toneStyles.border,
+                                                                    fontSize: 9,
+                                                                    fontWeight: 700,
+                                                                    color: toneStyles.color,
+                                                                }}
+                                                            >
+                                                                {chip.label}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                            {bundleOcrSummary?.diagnostics?.top_candidate_reason && (
+                                                <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.6, marginTop: 7 }}>
+                                                    OCR 근거: {bundleOcrSummary.diagnostics.top_candidate_reason}
+                                                </div>
+                                            )}
                                         </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontSize: 12, fontWeight: 800, color: '#22c55e' }}>
-                                                {hit.confidence.toFixed(1)}%
-                                            </div>
-                                            <div style={{ fontSize: 10, color: '#64748b' }}>
-                                                검출 {hit.vehicle_count}대
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.7 }}>
-                                        차량번호 단서 {hit.plate_candidates.length > 0 ? hit.plate_candidates.join(', ') : (hit.target_plate || '없음')}
-                                        {' · '}
-                                        색상 {hit.target_color || '미상'}
-                                        {' · '}
-                                        차종 {hit.target_vehicle_type || '미상'}
-                                    </div>
-                                </div>
+                                    );
+                                })()
                             ))}
                         </div>
                     )}
