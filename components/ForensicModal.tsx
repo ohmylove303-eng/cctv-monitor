@@ -841,6 +841,30 @@ export default function ForensicModal({
             }
             : null,
     ].filter((item): item is { label: string; value: string; source: string } => Boolean(item));
+    const trackingEvidencePayload = trackingResult
+        ? {
+            analysis: analysisResult,
+            tracking: trackingResult,
+            tracking_context: {
+                selected_hints: trackingInputSummary,
+                route_focus_summary: routeFocusSummary,
+                hit_hint_sources: trackingResult.hits.map((hit) => ({
+                    id: hit.id,
+                    cctv_id: hit.cctv_id,
+                    cctv_name: hit.cctv_name,
+                    hints: buildTrackingHintChips(hit, {
+                        suggestedTrackingPlate,
+                        effectiveTargetPlate,
+                        effectiveTargetColor,
+                        effectiveTargetVehicleType,
+                        resolvedPlateSourceLabel,
+                        resolvedColorSourceLabel,
+                        resolvedVehicleTypeSourceLabel,
+                    }),
+                })),
+            },
+        }
+        : null;
 
     useEffect(() => {
         if (phase !== 'analyzed' || !suggestedTrackingPlate) {
@@ -2415,10 +2439,13 @@ export default function ForensicModal({
                     {phase === 'tracked' && trackingResult && (
                         <button
                             className="btn-forensic"
-                            onClick={() => exportEvidence({
-                                analysis: analysisResult,
-                                tracking: trackingResult,
-                            }, `vehicle_tracking_${trackingResult.tracking_id.slice(0, 8)}.json`)}
+                            onClick={() => exportEvidence(
+                                trackingEvidencePayload ?? {
+                                    analysis: analysisResult,
+                                    tracking: trackingResult,
+                                },
+                                `vehicle_tracking_${trackingResult.tracking_id.slice(0, 8)}.json`
+                            )}
                         >
                             추적 결과 저장
                         </button>
