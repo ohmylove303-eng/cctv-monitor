@@ -67,6 +67,9 @@ type BundleAnalysisHit = {
     time_window_label?: string;
     is_route_focus?: boolean;
     analysis_stage: 'scan' | 'verify';
+    ocr_status: ForensicResult['ocr_status'];
+    ocr_engine?: string | null;
+    ocr_diagnostics?: ForensicResult['ocr_diagnostics'];
 };
 
 type BundleAnalysisSummary = {
@@ -326,6 +329,34 @@ function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_d
         label: '권고',
         value: '번호판 단서가 약합니다. 현재 결과는 참고용으로 보고 색상·차종·도로축 중심으로 먼저 좁히는 편이 좋습니다.',
         tone: 'warning' as const,
+    };
+}
+
+function buildOcrEvidenceSummary(
+    result: Pick<ForensicResult, 'ocr_status' | 'ocr_engine' | 'plate_candidates' | 'ocr_diagnostics'> | null | undefined
+) {
+    if (!result) {
+        return null;
+    }
+
+    return {
+        status: result.ocr_status,
+        engine: result.ocr_engine ?? null,
+        top_candidate: result.plate_candidates?.[0] ?? null,
+        candidate_count: result.plate_candidates?.length ?? 0,
+        diagnostics: result.ocr_diagnostics
+            ? {
+                frame_batches: result.ocr_diagnostics.frame_batches,
+                observation_count: result.ocr_diagnostics.observation_count,
+                raw_candidate_count: result.ocr_diagnostics.raw_candidate_count,
+                viable_candidate_count: result.ocr_diagnostics.viable_candidate_count,
+                final_candidate_count: result.ocr_diagnostics.final_candidate_count,
+                suppressed_region_variants: result.ocr_diagnostics.suppressed_region_variants,
+                top_candidate_support: result.ocr_diagnostics.top_candidate_support,
+                top_candidate_weight: result.ocr_diagnostics.top_candidate_weight,
+                top_candidate_reason: result.ocr_diagnostics.top_candidate_reason ?? null,
+            }
+            : null,
     };
 }
 
@@ -753,6 +784,9 @@ function buildBundleAnalysisSummary(
             time_window_label: item.cctvMeta.timeWindowLabel,
             is_route_focus: item.cctvMeta.isRouteFocus,
             analysis_stage: item.analysisStage,
+            ocr_status: item.ocr_status,
+            ocr_engine: item.ocr_engine,
+            ocr_diagnostics: item.ocr_diagnostics,
         })),
     };
 }
@@ -978,10 +1012,17 @@ export default function ForensicModal({
                 requested_hints: bundleRequestedHints,
                 suggested_hints: bundleSuggestedHints,
                 route_focus_summary: routeFocusSummary,
+                ocr_summary: buildOcrEvidenceSummary(analysisResult),
                 hit_hint_sources: bundleAnalysisSummary.hits.map((hit) => ({
                     cctv_id: hit.cctv_id,
                     cctv_name: hit.cctv_name,
                     analysis_stage: hit.analysis_stage,
+                    ocr_summary: buildOcrEvidenceSummary({
+                        ocr_status: hit.ocr_status,
+                        ocr_engine: hit.ocr_engine ?? null,
+                        plate_candidates: hit.plate_candidates,
+                        ocr_diagnostics: hit.ocr_diagnostics ?? null,
+                    }),
                     hints: buildBundleHintChips(hit, {
                         requestedPlate: targetPlate.trim(),
                         requestedColor: targetColor !== '미지정' ? targetColor : '',
@@ -994,6 +1035,16 @@ export default function ForensicModal({
             },
         }
         : null;
+    const analysisEvidencePayload = analysisResult
+        ? {
+            analysis: analysisResult,
+            analysis_context: {
+                ocr_summary: buildOcrEvidenceSummary(analysisResult),
+                selected_hints: trackingInputSummary,
+                route_focus_summary: routeFocusSummary,
+            },
+        }
+        : null;
     const trackingEvidencePayload = trackingResult
         ? {
             analysis: analysisResult,
@@ -1001,6 +1052,7 @@ export default function ForensicModal({
             tracking_context: {
                 selected_hints: trackingInputSummary,
                 route_focus_summary: routeFocusSummary,
+                analysis_ocr_summary: buildOcrEvidenceSummary(analysisResult),
                 hit_hint_sources: trackingResult.hits.map((hit) => ({
                     id: hit.id,
                     cctv_id: hit.cctv_id,
@@ -2565,7 +2617,10 @@ export default function ForensicModal({
                             {analysisResult && (
                                 <button
                                     className="btn-neon"
-                                    onClick={() => exportEvidence(analysisResult, `vehicle_analysis_${analysisResult.job_id.slice(0, 8)}.json`)}
+                                    onClick={() => exportEvidence(
+                                        analysisEvidencePayload ?? analysisResult,
+                                        `vehicle_analysis_${analysisResult.job_id.slice(0, 8)}.json`
+                                    )}
                                 >
                                     분석 결과 저장
                                 </button>
