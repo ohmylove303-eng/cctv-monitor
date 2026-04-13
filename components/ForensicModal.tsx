@@ -329,6 +329,91 @@ function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_d
     };
 }
 
+function buildTrackingHintChips(
+    hit: Pick<ForensicTrackingResult['hits'][number], 'plate_candidates' | 'plate' | 'color' | 'vehicle_type'>,
+    fallback: {
+        suggestedTrackingPlate: string;
+        effectiveTargetPlate: string;
+        effectiveTargetColor: string;
+        effectiveTargetVehicleType: string;
+        resolvedPlateSourceLabel: string;
+        resolvedColorSourceLabel: string;
+        resolvedVehicleTypeSourceLabel: string;
+    }
+) {
+    const chips: Array<{
+        key: string;
+        label: string;
+        value: string;
+        source: string;
+        tone: 'blue' | 'emerald' | 'violet';
+    }> = [];
+
+    if (hit.plate_candidates && hit.plate_candidates.length > 0) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 후보',
+            value: hit.plate_candidates[0],
+            source: '이 카메라 OCR 후보',
+            tone: 'blue',
+        });
+    } else if (hit.plate) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 단서',
+            value: hit.plate,
+            source: '추적 입력 유지',
+            tone: 'blue',
+        });
+    } else if (fallback.effectiveTargetPlate) {
+        chips.push({
+            key: 'plate',
+            label: '번호판 단서',
+            value: fallback.effectiveTargetPlate,
+            source: fallback.resolvedPlateSourceLabel || (fallback.suggestedTrackingPlate ? 'OCR/분석 자동 단서' : '추적 입력 유지'),
+            tone: 'blue',
+        });
+    }
+
+    if (hit.color) {
+        chips.push({
+            key: 'color',
+            label: '색상',
+            value: hit.color,
+            source: '이 카메라 판정',
+            tone: 'emerald',
+        });
+    } else if (fallback.effectiveTargetColor) {
+        chips.push({
+            key: 'color',
+            label: '색상',
+            value: fallback.effectiveTargetColor,
+            source: fallback.resolvedColorSourceLabel || '추적 입력 유지',
+            tone: 'emerald',
+        });
+    }
+
+    if (hit.vehicle_type) {
+        chips.push({
+            key: 'vehicleType',
+            label: '차종',
+            value: hit.vehicle_type,
+            source: '이 카메라 판정',
+            tone: 'violet',
+        });
+    } else if (fallback.effectiveTargetVehicleType) {
+        chips.push({
+            key: 'vehicleType',
+            label: '차종',
+            value: fallback.effectiveTargetVehicleType,
+            source: fallback.resolvedVehicleTypeSourceLabel || '추적 입력 유지',
+            tone: 'violet',
+        });
+    }
+
+    return chips;
+}
+
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
     const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
         ? raw.quality_report as Record<string, unknown>
@@ -2061,6 +2146,15 @@ export default function ForensicModal({
                             ) : (
                                 trackingResult.hits.map((hit) => {
                                     const isActive = trackingActiveCctvId === hit.cctv_id;
+                                    const trackingHintChips = buildTrackingHintChips(hit, {
+                                        suggestedTrackingPlate,
+                                        effectiveTargetPlate,
+                                        effectiveTargetColor,
+                                        effectiveTargetVehicleType,
+                                        resolvedPlateSourceLabel,
+                                        resolvedColorSourceLabel,
+                                        resolvedVehicleTypeSourceLabel,
+                                    });
                                     return (
                                     <div
                                         key={hit.id}
@@ -2149,6 +2243,54 @@ export default function ForensicModal({
                                                 ? hit.plate_candidates.join(', ')
                                                 : (hit.plate || effectiveTargetPlate || '미상')} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
                                         </div>
+                                        {trackingHintChips.length > 0 && (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                                                {trackingHintChips.map((chip) => {
+                                                    const toneStyles = chip.tone === 'blue'
+                                                        ? {
+                                                            background: 'rgba(56,189,248,0.10)',
+                                                            border: '1px solid rgba(56,189,248,0.18)',
+                                                            value: '#e0f2fe',
+                                                            source: '#93c5fd',
+                                                        }
+                                                        : chip.tone === 'emerald'
+                                                            ? {
+                                                                background: 'rgba(34,197,94,0.10)',
+                                                                border: '1px solid rgba(34,197,94,0.18)',
+                                                                value: '#dcfce7',
+                                                                source: '#86efac',
+                                                            }
+                                                            : {
+                                                                background: 'rgba(167,139,250,0.10)',
+                                                                border: '1px solid rgba(167,139,250,0.18)',
+                                                                value: '#ede9fe',
+                                                                source: '#c4b5fd',
+                                                            };
+                                                    return (
+                                                        <div
+                                                            key={`${hit.id}-${chip.key}`}
+                                                            style={{
+                                                                minWidth: 0,
+                                                                padding: '7px 9px',
+                                                                borderRadius: 8,
+                                                                background: toneStyles.background,
+                                                                border: toneStyles.border,
+                                                            }}
+                                                        >
+                                                            <div style={{ fontSize: 9, color: '#64748b', marginBottom: 3 }}>
+                                                                {chip.label}
+                                                            </div>
+                                                            <div style={{ fontSize: 10, fontWeight: 700, color: toneStyles.value }}>
+                                                                {chip.value}
+                                                            </div>
+                                                            <div style={{ fontSize: 9, color: toneStyles.source, marginTop: 3 }}>
+                                                                {chip.source}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                         {(hit.time_window_label || hit.travel_assessment_label || hit.expected_eta_minutes !== undefined) && (
                                             <div
                                                 style={{
