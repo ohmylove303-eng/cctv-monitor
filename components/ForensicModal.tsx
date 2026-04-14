@@ -294,14 +294,11 @@ function getPlateSignalValue(result: Pick<ForensicResult, 'ocr_status' | 'plate_
 }
 
 function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_diagnostics' | 'plate_candidates'>) {
-    if (result.ocr_status !== 'ocr_active' || !result.ocr_diagnostics) {
-        return null;
-    }
-
+    const tier = getOcrConfidenceTier(result);
     const diagnostics = result.ocr_diagnostics;
     const hasCandidate = (result.plate_candidates?.length ?? 0) > 0;
 
-    if (hasCandidate && diagnostics.top_candidate_support >= 2 && diagnostics.top_candidate_weight >= 0.9) {
+    if (tier === 'strong') {
         return {
             label: '권고',
             value: '상위 후보가 반복 관측됐습니다. 동일 도로축 CCTV 추적으로 바로 넘겨도 됩니다.',
@@ -309,7 +306,7 @@ function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_d
         };
     }
 
-    if (hasCandidate && diagnostics.top_candidate_support >= 1 && diagnostics.final_candidate_count <= 2) {
+    if (tier === 'moderate') {
         return {
             label: '권고',
             value: '후보는 확보됐지만 지지가 약합니다. 인접 CCTV 1~2곳에서 재확인 후 추적을 이어가는 편이 안전합니다.',
@@ -317,12 +314,42 @@ function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_d
         };
     }
 
-    if (!hasCandidate && diagnostics.observation_count > 0) {
+    if (tier === 'weak') {
         return {
             label: '권고',
-            value: 'OCR 관측은 있었지만 번호판 후보가 남지 않았습니다. 더 근거리 CCTV나 선명한 프레임으로 재시도하는 것이 좋습니다.',
+            value: hasCandidate
+                ? '번호판 후보는 남았지만 판독 강도가 약합니다. 더 근거리 CCTV나 정면 각도의 프레임으로 한 번 더 확인하는 편이 안전합니다.'
+                : 'OCR 관측은 있었지만 번호판 후보가 남지 않았습니다. 더 근거리 CCTV나 선명한 프레임으로 재시도하는 것이 좋습니다.',
             tone: 'warning' as const,
         };
+    }
+
+    if (tier === 'hint_only') {
+        return {
+            label: '권고',
+            value: '현재 결과는 입력한 차량번호 단서에 의존합니다. 같은 도로축의 인접 CCTV에서 번호판 또는 색상 재확인을 권장합니다.',
+            tone: 'info' as const,
+        };
+    }
+
+    if (tier === 'skipped') {
+        return {
+            label: '권고',
+            value: '이번 분석에서는 OCR을 생략했습니다. 차량이 더 크게 보이는 구간이나 다음 CCTV에서 다시 분석하는 편이 좋습니다.',
+            tone: 'warning' as const,
+        };
+    }
+
+    if (tier === 'unavailable') {
+        return {
+            label: '권고',
+            value: 'OCR 런타임이 준비되지 않았습니다. 현재는 색상·차종·도로축 단서로 좁히고, OCR 복구 후 재확인하는 편이 안전합니다.',
+            tone: 'warning' as const,
+        };
+    }
+
+    if (!diagnostics && !hasCandidate) {
+        return null;
     }
 
     return {
