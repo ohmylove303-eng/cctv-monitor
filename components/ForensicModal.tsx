@@ -97,6 +97,17 @@ type CameraQualityTelemetry = {
     updatedAt: string;
 };
 
+type AnalysisRecheckCandidate = {
+    id: string;
+    name: string;
+    region: CctvItem['region'];
+    address: string;
+    expectedEtaMinutes?: number;
+    timeWindowLabel?: string;
+    travelOrder?: number;
+    reason: string;
+};
+
 const DETECTION_STEPS = [
     { label: 'ITS 실시간 HLS 스트림 프레임 확보 중…', pct: 15 },
     { label: 'YOLO 차량 객체 검출 수행 중…', pct: 40 },
@@ -439,6 +450,64 @@ function getOcrConfidenceTierMeta(
         return { label: 'OCR 미가동', tone: 'amber' as const };
     }
     return null;
+}
+
+function buildAnalysisRecheckCandidates(
+    currentCctvId: string,
+    trackScope: ForensicTrackCamera[],
+    routeContext: ForensicRouteContext | null | undefined,
+    result: Pick<ForensicResult, 'ocr_status' | 'ocr_diagnostics' | 'plate_candidates'> | null | undefined,
+) {
+    const tier = getOcrConfidenceTier(result);
+    if (tier === 'strong' || tier === 'not_available') {
+        return [];
+    }
+
+    const priorityIds = routeContext
+        ? [
+            ...routeContext.immediateIds,
+            ...routeContext.shortIds,
+            ...routeContext.focusIds,
+            ...routeContext.prioritizedIds,
+        ].filter((id, index, array) => array.indexOf(id) === index)
+        : trackScope.map((camera) => camera.id);
+    const priorityOrder = new Map(priorityIds.map((id, index) => [id, index]));
+
+    return trackScope
+        .filter((camera) => camera.id !== currentCctvId)
+        .sort((left, right) =>
+            (priorityOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (priorityOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+            || Number(Boolean(right.isRouteFocus)) - Number(Boolean(left.isRouteFocus))
+            || ((left.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER) - (right.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER))
+            || ((left.travelOrder ?? Number.MAX_SAFE_INTEGER) - (right.travelOrder ?? Number.MAX_SAFE_INTEGER))
+            || ((right.identificationScore ?? 0) - (left.identificationScore ?? 0))
+        )
+        .slice(0, tier === 'weak' ? 3 : 2)
+        .map((camera) => {
+            let reason = '후속 재확인';
+            if (routeContext?.immediateIds.includes(camera.id)) {
+                reason = '즉시 재확인';
+            } else if (routeContext?.shortIds.includes(camera.id)) {
+                reason = '단기 재확인';
+            } else if (camera.isRouteFocus) {
+                reason = '집중군 재확인';
+            } else if (camera.identificationGrade === 'high') {
+                reason = '식별 우선 지점';
+            } else if ((camera.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER) <= 5) {
+                reason = '근접 구간 확인';
+            }
+
+            return {
+                id: camera.id,
+                name: camera.name,
+                region: camera.region,
+                address: camera.address,
+                expectedEtaMinutes: camera.expectedEtaMinutes,
+                timeWindowLabel: camera.timeWindowLabel,
+                travelOrder: camera.travelOrder,
+                reason,
+            };
+        });
 }
 
 function buildOcrEvidenceSummary(
@@ -1204,6 +1273,10 @@ export default function ForensicModal({
     const ocrActionGuidance = analysisResult ? getOcrActionGuidance(analysisResult) : null;
     const analysisOcrSummary = buildOcrEvidenceSummary(analysisResult);
     const analysisOcrChips = buildOcrSummaryChips(analysisResult);
+    const analysisRecheckCandidates = useMemo(
+        () => buildAnalysisRecheckCandidates(cctv.id, trackScope, routeContext, analysisResult),
+        [analysisResult, cctv.id, routeContext, trackScope]
+    );
     const rankedPlateCandidates = analysisResult?.ocr_status === 'ocr_active'
         ? analysisResult.plate_candidates ?? []
         : [];
@@ -1350,6 +1423,7 @@ export default function ForensicModal({
                 ocr_summary: buildOcrEvidenceSummary(analysisResult),
                 selected_hints: trackingInputSummary,
                 route_focus_summary: routeFocusSummary,
+                recheck_candidates: analysisRecheckCandidates,
             },
         }
         : null;
@@ -2505,6 +2579,69 @@ export default function ForensicModal({
                                     }}
                                 >
                                     {ocrActionGuidance.label}: {ocrActionGuidance.value}
+                                </div>
+                            )}
+
+                            {analysisRecheckCandidates.length > 0 && (
+                                <div
+                                    style={{
+                                        padding: '10px 12px',
+                                        background: 'rgba(59,130,246,0.06)',
+                                        border: '1px solid rgba(59,130,246,0.16)',
+                                        borderRadius: 8,
+                                    }}
+                                >
+                                    <div style={{ fontSize: 10, color: '#93c5fd', fontWeight: 800, marginBottom: 8 }}>
+                                        인접 CCTV 재확인 후보
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        {analysisRecheckCandidates.map((candidate) => (
+                                            <div
+                                                key={`analysis-recheck-${candidate.id}`}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 10,
+                                                    padding: '8px 10px',
+                                                    background: 'rgba(255,255,255,0.03)',
+                                                    border: '1px solid rgba(255,255,255,0.07)',
+                                                    borderRadius: 8,
+                                                }}
+                                            >
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>
+                                                        {candidate.name}
+                                                    </div>
+                                                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 3, lineHeight: 1.5 }}>
+                                                        {candidate.region}
+                                                        {candidate.timeWindowLabel ? ` · ${candidate.timeWindowLabel}` : ''}
+                                                        {candidate.expectedEtaMinutes !== undefined ? ` · ETA ${candidate.expectedEtaMinutes}분` : ''}
+                                                        {candidate.travelOrder !== undefined ? ` · 순서 ${candidate.travelOrder + 1}` : ''}
+                                                        {` · ${candidate.reason}`}
+                                                    </div>
+                                                </div>
+                                                {onLocate && (
+                                                    <button
+                                                        onClick={() => onLocate(candidate.id)}
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid rgba(59,130,246,0.22)',
+                                                            background: 'rgba(59,130,246,0.08)',
+                                                            color: '#93c5fd',
+                                                            fontSize: 11,
+                                                            fontWeight: 700,
+                                                            cursor: 'pointer',
+                                                            flexShrink: 0,
+                                                        }}
+                                                    >
+                                                        지도 보기
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>
