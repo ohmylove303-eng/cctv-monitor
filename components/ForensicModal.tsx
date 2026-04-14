@@ -105,7 +105,10 @@ type AnalysisRecheckCandidate = {
     expectedEtaMinutes?: number;
     timeWindowLabel?: string;
     travelOrder?: number;
+    priorityLabel: string;
+    priorityTone: 'blue' | 'amber' | 'slate';
     reason: string;
+    detail: string;
 };
 
 const DETECTION_STEPS = [
@@ -485,17 +488,35 @@ function buildAnalysisRecheckCandidates(
         .slice(0, tier === 'weak' ? 3 : 2)
         .map((camera) => {
             let reason = '후속 재확인';
+            let priorityLabel = '후속';
+            let priorityTone: AnalysisRecheckCandidate['priorityTone'] = 'slate';
             if (routeContext?.immediateIds.includes(camera.id)) {
                 reason = '즉시 재확인';
+                priorityLabel = '즉시';
+                priorityTone = 'blue';
             } else if (routeContext?.shortIds.includes(camera.id)) {
                 reason = '단기 재확인';
+                priorityLabel = '단기';
+                priorityTone = 'blue';
             } else if (camera.isRouteFocus) {
                 reason = '집중군 재확인';
+                priorityLabel = '집중군';
+                priorityTone = 'blue';
             } else if (camera.identificationGrade === 'high') {
                 reason = '식별 우선 지점';
+                priorityLabel = '식별 우선';
+                priorityTone = 'amber';
             } else if ((camera.expectedEtaMinutes ?? Number.MAX_SAFE_INTEGER) <= 5) {
                 reason = '근접 구간 확인';
+                priorityLabel = '근접';
+                priorityTone = 'amber';
             }
+
+            const detailParts = [
+                camera.identificationReason,
+                camera.timeWindowLabel ? `${camera.timeWindowLabel} 재확인 구간` : null,
+                camera.expectedEtaMinutes !== undefined ? `예상 ${camera.expectedEtaMinutes}분 내 통과` : null,
+            ].filter((part): part is string => Boolean(part));
 
             return {
                 id: camera.id,
@@ -505,7 +526,10 @@ function buildAnalysisRecheckCandidates(
                 expectedEtaMinutes: camera.expectedEtaMinutes,
                 timeWindowLabel: camera.timeWindowLabel,
                 travelOrder: camera.travelOrder,
+                priorityLabel,
+                priorityTone,
                 reason,
+                detail: detailParts.join(' · '),
             };
         });
 }
@@ -2610,8 +2634,35 @@ export default function ForensicModal({
                                                 }}
                                             >
                                                 <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>
-                                                        {candidate.name}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                                        <span
+                                                            style={{
+                                                                padding: '2px 6px',
+                                                                borderRadius: 999,
+                                                                background: candidate.priorityTone === 'blue'
+                                                                    ? 'rgba(56,189,248,0.12)'
+                                                                    : candidate.priorityTone === 'amber'
+                                                                        ? 'rgba(245,158,11,0.12)'
+                                                                        : 'rgba(148,163,184,0.10)',
+                                                                border: candidate.priorityTone === 'blue'
+                                                                    ? '1px solid rgba(56,189,248,0.22)'
+                                                                    : candidate.priorityTone === 'amber'
+                                                                        ? '1px solid rgba(245,158,11,0.22)'
+                                                                        : '1px solid rgba(148,163,184,0.18)',
+                                                                color: candidate.priorityTone === 'blue'
+                                                                    ? '#93c5fd'
+                                                                    : candidate.priorityTone === 'amber'
+                                                                        ? '#fcd34d'
+                                                                        : '#cbd5e1',
+                                                                fontSize: 9,
+                                                                fontWeight: 800,
+                                                            }}
+                                                        >
+                                                            {candidate.priorityLabel}
+                                                        </span>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>
+                                                            {candidate.name}
+                                                        </div>
                                                     </div>
                                                     <div style={{ fontSize: 10, color: '#64748b', marginTop: 3, lineHeight: 1.5 }}>
                                                         {candidate.region}
@@ -2620,6 +2671,11 @@ export default function ForensicModal({
                                                         {candidate.travelOrder !== undefined ? ` · 순서 ${candidate.travelOrder + 1}` : ''}
                                                         {` · ${candidate.reason}`}
                                                     </div>
+                                                    {candidate.detail && (
+                                                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4, lineHeight: 1.5 }}>
+                                                            근거: {candidate.detail}
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 {onLocate && (
                                                     <button
