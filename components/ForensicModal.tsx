@@ -332,6 +332,88 @@ function getOcrActionGuidance(result: Pick<ForensicResult, 'ocr_status' | 'ocr_d
     };
 }
 
+function getOcrConfidenceTier(
+    result: Pick<ForensicResult, 'ocr_status' | 'ocr_diagnostics' | 'plate_candidates'> | null | undefined
+) {
+    if (!result) {
+        return 'not_available' as const;
+    }
+
+    if (result.ocr_status === 'target_hint_only') {
+        return 'hint_only' as const;
+    }
+
+    if (result.ocr_status === 'skipped_no_vehicle' || result.ocr_status === 'skipped_no_frames') {
+        return 'skipped' as const;
+    }
+
+    if (result.ocr_status === 'ocr_unavailable') {
+        return 'unavailable' as const;
+    }
+
+    if (result.ocr_status !== 'ocr_active' || !result.ocr_diagnostics) {
+        return 'not_available' as const;
+    }
+
+    const diagnostics = result.ocr_diagnostics;
+    const candidateCount = result.plate_candidates?.length ?? 0;
+
+    if (
+        candidateCount > 0
+        && diagnostics.top_candidate_support >= 2
+        && diagnostics.top_candidate_weight >= 1.05
+        && diagnostics.final_candidate_count <= 2
+    ) {
+        return 'strong' as const;
+    }
+
+    if (
+        candidateCount > 0
+        && diagnostics.top_candidate_support >= 1
+        && diagnostics.top_candidate_weight >= 0.78
+        && diagnostics.final_candidate_count <= 3
+    ) {
+        return 'moderate' as const;
+    }
+
+    if (candidateCount > 0 || diagnostics.observation_count > 0) {
+        return 'weak' as const;
+    }
+
+    return 'not_available' as const;
+}
+
+function getOcrConfidenceTierMeta(
+    tier:
+        | 'strong'
+        | 'moderate'
+        | 'weak'
+        | 'hint_only'
+        | 'skipped'
+        | 'unavailable'
+        | 'not_available'
+) {
+    if (tier === 'strong') {
+        return { label: '판독 강도 강함', tone: 'blue' as const };
+    }
+    if (tier === 'moderate') {
+        return { label: '판독 강도 보통', tone: 'blue' as const };
+    }
+    if (tier === 'weak') {
+        return { label: '판독 강도 약함', tone: 'amber' as const };
+    }
+    if (tier === 'hint_only') {
+        return { label: '단서 기반', tone: 'amber' as const };
+    }
+    if (tier === 'skipped') {
+        return { label: 'OCR 생략', tone: 'slate' as const };
+    }
+    if (tier === 'unavailable') {
+        return { label: 'OCR 미가동', tone: 'amber' as const };
+    }
+    return null;
+}
+
 function buildOcrEvidenceSummary(
     result: Pick<ForensicResult, 'ocr_status' | 'ocr_engine' | 'plate_candidates' | 'ocr_diagnostics'> | null | undefined
 ) {
@@ -344,6 +426,7 @@ function buildOcrEvidenceSummary(
         engine: result.ocr_engine ?? null,
         top_candidate: result.plate_candidates?.[0] ?? null,
         candidate_count: result.plate_candidates?.length ?? 0,
+        confidence_tier: getOcrConfidenceTier(result),
         diagnostics: result.ocr_diagnostics
             ? {
                 frame_batches: result.ocr_diagnostics.frame_batches,
@@ -374,6 +457,15 @@ function buildOcrSummaryChips(
         tone: 'blue' | 'amber' | 'slate';
     }> = [];
 
+    const confidenceTierMeta = getOcrConfidenceTierMeta(summary.confidence_tier);
+    if (confidenceTierMeta) {
+        chips.push({
+            key: 'confidenceTier',
+            label: confidenceTierMeta.label,
+            tone: confidenceTierMeta.tone,
+        });
+    }
+
     if (summary.status === 'ocr_active' && summary.diagnostics) {
         chips.push({
             key: 'candidateCount',
@@ -388,24 +480,6 @@ function buildOcrSummaryChips(
                 tone: 'blue',
             });
         }
-    } else if (summary.status === 'target_hint_only') {
-        chips.push({
-            key: 'targetHintOnly',
-            label: '입력 단서 기반',
-            tone: 'amber',
-        });
-    } else if (summary.status === 'skipped_no_vehicle' || summary.status === 'skipped_no_frames') {
-        chips.push({
-            key: 'skipped',
-            label: 'OCR 건너뜀',
-            tone: 'slate',
-        });
-    } else if (summary.status === 'ocr_unavailable') {
-        chips.push({
-            key: 'ocrUnavailable',
-            label: 'OCR 초기화 실패',
-            tone: 'amber',
-        });
     }
 
     if (summary.engine) {
@@ -438,6 +512,9 @@ function buildBundleOcrOverview(summary: BundleAnalysisSummary | null | undefine
         (max, hit) => Math.max(max, hit.ocr_diagnostics?.top_candidate_support ?? 0),
         0
     );
+    const strongHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'strong').length;
+    const moderateHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'moderate').length;
+    const weakHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'weak').length;
     const representativeReason = [...ocrActiveHits]
         .sort((left, right) =>
             (right.ocr_diagnostics?.top_candidate_support ?? 0) - (left.ocr_diagnostics?.top_candidate_support ?? 0)
@@ -461,6 +538,9 @@ function buildBundleOcrOverview(summary: BundleAnalysisSummary | null | undefine
         skippedHits: skippedHits.length,
         totalFinalCandidates,
         strongestSupport,
+        strongHits,
+        moderateHits,
+        weakHits,
         representativeReason,
     };
 }
@@ -484,6 +564,9 @@ function buildTrackingOcrOverview(summary: ForensicTrackingResult | null | undef
         (max, hit) => Math.max(max, hit.ocr_diagnostics?.top_candidate_support ?? 0),
         0
     );
+    const strongHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'strong').length;
+    const moderateHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'moderate').length;
+    const weakHits = ocrActiveHits.filter((hit) => getOcrConfidenceTier(hit) === 'weak').length;
     const representativeReason = [...ocrActiveHits]
         .sort((left, right) =>
             (right.ocr_diagnostics?.top_candidate_support ?? 0) - (left.ocr_diagnostics?.top_candidate_support ?? 0)
@@ -507,6 +590,9 @@ function buildTrackingOcrOverview(summary: ForensicTrackingResult | null | undef
         skippedHits: skippedHits.length,
         totalFinalCandidates,
         strongestSupport,
+        strongHits,
+        moderateHits,
+        weakHits,
         representativeReason,
     };
 }
@@ -2435,6 +2521,9 @@ export default function ForensicModal({
                                         번들 OCR 요약: 후보 확인 {bundleOcrOverview.hitsWithCandidates}대
                                         {bundleOcrOverview.totalFinalCandidates > 0 ? ` · 최종 후보 ${bundleOcrOverview.totalFinalCandidates}개` : ''}
                                         {bundleOcrOverview.strongestSupport > 0 ? ` · 최고 지지 ${bundleOcrOverview.strongestSupport}프레임` : ''}
+                                        {bundleOcrOverview.strongHits > 0 ? ` · 강함 ${bundleOcrOverview.strongHits}대` : ''}
+                                        {bundleOcrOverview.moderateHits > 0 ? ` · 보통 ${bundleOcrOverview.moderateHits}대` : ''}
+                                        {bundleOcrOverview.weakHits > 0 ? ` · 약함 ${bundleOcrOverview.weakHits}대` : ''}
                                         {bundleOcrOverview.hintOnlyHits > 0 ? ` · 입력 단서 기반 ${bundleOcrOverview.hintOnlyHits}대` : ''}
                                         {bundleOcrOverview.skippedHits > 0 ? ` · OCR 생략 ${bundleOcrOverview.skippedHits}대` : ''}
                                         {bundleOcrOverview.representativeReason ? `\n대표 근거: ${bundleOcrOverview.representativeReason}` : ''}
@@ -2603,6 +2692,9 @@ export default function ForensicModal({
                                         추적 OCR 요약: 후보 확인 {trackingOcrOverview.hitsWithCandidates}대
                                         {trackingOcrOverview.totalFinalCandidates > 0 ? ` · 최종 후보 ${trackingOcrOverview.totalFinalCandidates}개` : ''}
                                         {trackingOcrOverview.strongestSupport > 0 ? ` · 최고 지지 ${trackingOcrOverview.strongestSupport}프레임` : ''}
+                                        {trackingOcrOverview.strongHits > 0 ? ` · 강함 ${trackingOcrOverview.strongHits}대` : ''}
+                                        {trackingOcrOverview.moderateHits > 0 ? ` · 보통 ${trackingOcrOverview.moderateHits}대` : ''}
+                                        {trackingOcrOverview.weakHits > 0 ? ` · 약함 ${trackingOcrOverview.weakHits}대` : ''}
                                         {trackingOcrOverview.hintOnlyHits > 0 ? ` · 입력 단서 기반 ${trackingOcrOverview.hintOnlyHits}대` : ''}
                                         {trackingOcrOverview.skippedHits > 0 ? ` · OCR 생략 ${trackingOcrOverview.skippedHits}대` : ''}
                                         {trackingOcrOverview.representativeReason ? `\n대표 근거: ${trackingOcrOverview.representativeReason}` : ''}
