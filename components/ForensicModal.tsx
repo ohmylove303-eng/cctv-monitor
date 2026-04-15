@@ -1305,6 +1305,7 @@ export default function ForensicModal({
         () => buildAnalysisRecheckCandidates(cctv.id, trackScope, routeContext, analysisResult),
         [analysisResult, cctv.id, routeContext, trackScope]
     );
+    const nextRecheckCandidate = analysisRecheckCandidates[0] ?? null;
     const rankedPlateCandidates = analysisResult?.ocr_status === 'ocr_active'
         ? analysisResult.plate_candidates ?? []
         : [];
@@ -2190,7 +2191,34 @@ export default function ForensicModal({
                                 lineHeight: 1.7,
                             }}
                         >
-                            {carryoverNotice}
+                            <div>{carryoverNotice}</div>
+                            {phase === 'analyzed' && nextRecheckCandidate && onLocate && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 10, color: '#93c5fd' }}>
+                                        다음 권장: {nextRecheckCandidate.name}
+                                        {nextRecheckCandidate.timeWindowLabel ? ` · ${nextRecheckCandidate.timeWindowLabel}` : ''}
+                                        {nextRecheckCandidate.expectedEtaMinutes !== undefined ? ` · ETA ${nextRecheckCandidate.expectedEtaMinutes}분` : ''}
+                                    </span>
+                                    <button
+                                        onClick={() => {
+                                            setPendingAutoRecheckCctvId(nextRecheckCandidate.id);
+                                            onLocate(nextRecheckCandidate.id);
+                                        }}
+                                        style={{
+                                            padding: '6px 10px',
+                                            borderRadius: 6,
+                                            border: '1px solid rgba(59,130,246,0.24)',
+                                            background: 'rgba(59,130,246,0.10)',
+                                            color: '#dbeafe',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        다음 후보 계속
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 
