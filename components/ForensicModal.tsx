@@ -1225,12 +1225,14 @@ export default function ForensicModal({
     const [targetColor, setTargetColor] = useState('미지정');
     const [targetVehicleType, setTargetVehicleType] = useState('미지정');
     const [carryoverNotice, setCarryoverNotice] = useState<string | null>(null);
+    const [pendingAutoRecheckCctvId, setPendingAutoRecheckCctvId] = useState<string | null>(null);
     const [cameraQualityTelemetry, setCameraQualityTelemetry] = useState<Record<string, CameraQualityTelemetry>>(
         () => loadCameraQualityTelemetry()
     );
     const runIdRef = useRef(0);
     const targetPlateEditedRef = useRef(false);
     const autoFilledTargetPlateRef = useRef<string | null>(null);
+    const startAnalysisRef = useRef<(() => Promise<void>) | null>(null);
     const trackingOriginCardRef = useRef<HTMLDivElement | null>(null);
     const trackingHitCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const previousCctvRef = useRef<{ id: string; name: string } | null>(null);
@@ -1516,7 +1518,9 @@ export default function ForensicModal({
         targetPlateEditedRef.current = Boolean(carryPlate);
         autoFilledTargetPlateRef.current = carryPlate || null;
         setCarryoverNotice(
-            `${previous.name}에서 ${cctv.name}(으)로 재확인 이동했습니다. 기존 차량번호/색상/차종 단서를 유지했습니다.`
+            pendingAutoRecheckCctvId === cctv.id
+                ? `${previous.name}에서 ${cctv.name}(으)로 재확인 이동했습니다. 기존 차량번호/색상/차종 단서를 유지한 채 1차 스캔을 바로 시작합니다.`
+                : `${previous.name}에서 ${cctv.name}(으)로 재확인 이동했습니다. 기존 차량번호/색상/차종 단서를 유지했습니다.`
         );
 
         previousCctvRef.current = { id: cctv.id, name: cctv.name };
@@ -1527,6 +1531,7 @@ export default function ForensicModal({
         effectiveTargetPlate,
         effectiveTargetVehicleType,
         onTrackingActiveCctvChange,
+        pendingAutoRecheckCctvId,
     ]);
 
     useEffect(() => {
@@ -1577,6 +1582,7 @@ export default function ForensicModal({
 
     const startAnalysis = async () => {
         setCarryoverNotice(null);
+        setPendingAutoRecheckCctvId(null);
         setErrorMessage(null);
         setTrackingResult(null);
         setBundleAnalysisSummary(null);
@@ -1624,9 +1630,25 @@ export default function ForensicModal({
             setErrorMessage(error instanceof Error ? error.message : '차량 분석 중 오류가 발생했습니다.');
         }
     };
+    startAnalysisRef.current = startAnalysis;
+
+    useEffect(() => {
+        if (pendingAutoRecheckCctvId !== cctv.id || phase !== 'idle') {
+            return;
+        }
+
+        const executeAutoRecheck = startAnalysisRef.current;
+        if (!executeAutoRecheck) {
+            return;
+        }
+
+        setPendingAutoRecheckCctvId(null);
+        void executeAutoRecheck();
+    }, [cctv.id, pendingAutoRecheckCctvId, phase]);
 
     const startVerifyAnalysis = async () => {
         setCarryoverNotice(null);
+        setPendingAutoRecheckCctvId(null);
         setErrorMessage(null);
 
         if (!backendEnabled) {
@@ -1675,6 +1697,7 @@ export default function ForensicModal({
 
     const startBundleAnalysis = async () => {
         setCarryoverNotice(null);
+        setPendingAutoRecheckCctvId(null);
         setErrorMessage(null);
         setAnalysisResult(null);
         setTrackingResult(null);
@@ -1792,6 +1815,7 @@ export default function ForensicModal({
 
     const startTracking = async () => {
         setCarryoverNotice(null);
+        setPendingAutoRecheckCctvId(null);
         setErrorMessage(null);
 
         if (!backendEnabled) {
@@ -1858,6 +1882,7 @@ export default function ForensicModal({
         setBundleAnalysisSummary(null);
         setTrackingResult(null);
         setCarryoverNotice(null);
+        setPendingAutoRecheckCctvId(null);
     };
 
     const statusPill = isCurrentCameraSupported
@@ -2746,22 +2771,41 @@ export default function ForensicModal({
                                                     )}
                                                 </div>
                                                 {onLocate && (
-                                                    <button
-                                                        onClick={() => onLocate(candidate.id)}
-                                                        style={{
-                                                            padding: '6px 10px',
-                                                            borderRadius: 6,
-                                                            border: '1px solid rgba(59,130,246,0.22)',
-                                                            background: 'rgba(59,130,246,0.08)',
-                                                            color: '#93c5fd',
-                                                            fontSize: 11,
-                                                            fontWeight: 700,
-                                                            cursor: 'pointer',
-                                                            flexShrink: 0,
-                                                        }}
-                                                    >
-                                                        지도 보기
-                                                    </button>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                                                        <button
+                                                            onClick={() => onLocate(candidate.id)}
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid rgba(59,130,246,0.22)',
+                                                                background: 'rgba(59,130,246,0.08)',
+                                                                color: '#93c5fd',
+                                                                fontSize: 11,
+                                                                fontWeight: 700,
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        >
+                                                            지도 보기
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setPendingAutoRecheckCctvId(candidate.id);
+                                                                onLocate(candidate.id);
+                                                            }}
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid rgba(34,197,94,0.22)',
+                                                                background: 'rgba(34,197,94,0.08)',
+                                                                color: '#86efac',
+                                                                fontSize: 11,
+                                                                fontWeight: 700,
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        >
+                                                            이동 후 재확인
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
                                         ))}
