@@ -1224,6 +1224,7 @@ export default function ForensicModal({
     const [targetPlate, setTargetPlate] = useState('');
     const [targetColor, setTargetColor] = useState('미지정');
     const [targetVehicleType, setTargetVehicleType] = useState('미지정');
+    const [carryoverNotice, setCarryoverNotice] = useState<string | null>(null);
     const [cameraQualityTelemetry, setCameraQualityTelemetry] = useState<Record<string, CameraQualityTelemetry>>(
         () => loadCameraQualityTelemetry()
     );
@@ -1232,6 +1233,7 @@ export default function ForensicModal({
     const autoFilledTargetPlateRef = useRef<string | null>(null);
     const trackingOriginCardRef = useRef<HTMLDivElement | null>(null);
     const trackingHitCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const previousCctvRef = useRef<{ id: string; name: string } | null>(null);
 
     useEffect(() => {
         onTrackingResultChange?.(trackingResult);
@@ -1484,6 +1486,50 @@ export default function ForensicModal({
         : null;
 
     useEffect(() => {
+        const previous = previousCctvRef.current;
+        if (!previous) {
+            previousCctvRef.current = { id: cctv.id, name: cctv.name };
+            return;
+        }
+
+        if (previous.id === cctv.id) {
+            return;
+        }
+
+        const carryPlate = effectiveTargetPlate;
+        const carryColor = effectiveTargetColor;
+        const carryVehicleType = effectiveTargetVehicleType;
+
+        runIdRef.current += 1;
+        setPhase('idle');
+        setStepIdx(0);
+        setProgress(0);
+        setErrorMessage(null);
+        setAnalysisResult(null);
+        setBundleAnalysisSummary(null);
+        setTrackingResult(null);
+        onTrackingActiveCctvChange?.(null);
+
+        setTargetPlate(carryPlate || '');
+        setTargetColor(carryColor || '미지정');
+        setTargetVehicleType(carryVehicleType || '미지정');
+        targetPlateEditedRef.current = Boolean(carryPlate);
+        autoFilledTargetPlateRef.current = carryPlate || null;
+        setCarryoverNotice(
+            `${previous.name}에서 ${cctv.name}(으)로 재확인 이동했습니다. 기존 차량번호/색상/차종 단서를 유지했습니다.`
+        );
+
+        previousCctvRef.current = { id: cctv.id, name: cctv.name };
+    }, [
+        cctv.id,
+        cctv.name,
+        effectiveTargetColor,
+        effectiveTargetPlate,
+        effectiveTargetVehicleType,
+        onTrackingActiveCctvChange,
+    ]);
+
+    useEffect(() => {
         if (phase !== 'analyzed' || !suggestedTrackingPlate) {
             return;
         }
@@ -1530,6 +1576,7 @@ export default function ForensicModal({
     };
 
     const startAnalysis = async () => {
+        setCarryoverNotice(null);
         setErrorMessage(null);
         setTrackingResult(null);
         setBundleAnalysisSummary(null);
@@ -1579,6 +1626,7 @@ export default function ForensicModal({
     };
 
     const startVerifyAnalysis = async () => {
+        setCarryoverNotice(null);
         setErrorMessage(null);
 
         if (!backendEnabled) {
@@ -1626,6 +1674,7 @@ export default function ForensicModal({
     };
 
     const startBundleAnalysis = async () => {
+        setCarryoverNotice(null);
         setErrorMessage(null);
         setAnalysisResult(null);
         setTrackingResult(null);
@@ -1742,6 +1791,7 @@ export default function ForensicModal({
     };
 
     const startTracking = async () => {
+        setCarryoverNotice(null);
         setErrorMessage(null);
 
         if (!backendEnabled) {
@@ -1807,6 +1857,7 @@ export default function ForensicModal({
         setAnalysisResult(null);
         setBundleAnalysisSummary(null);
         setTrackingResult(null);
+        setCarryoverNotice(null);
     };
 
     const statusPill = isCurrentCameraSupported
@@ -2098,6 +2149,23 @@ export default function ForensicModal({
                         >
                             현재 운영 환경에서는 <strong style={{ color: '#fef3c7' }}>노선 그룹 순차 분석</strong>이 기본 실전 경로입니다.
                             단일 CCTV 분석은 빠른 보조 확인용으로 두고, 실제 추적은 같은 도로축 상위 CCTV 묶음을 먼저 훑는 흐름을 권장합니다.
+                        </div>
+                    )}
+
+                    {carryoverNotice && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(59,130,246,0.08)',
+                                border: '1px solid rgba(59,130,246,0.22)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#bfdbfe',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            {carryoverNotice}
                         </div>
                     )}
 
