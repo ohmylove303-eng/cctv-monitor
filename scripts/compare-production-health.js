@@ -11,6 +11,7 @@ function parseArgs(argv) {
         cctv: DEFAULT_CCTV_URL,
         snapshot: DEFAULT_SNAPSHOT_PATH,
         writeSnapshot: false,
+        warnOnDrop: [],
         failOnDrop: [],
     };
 
@@ -41,9 +42,16 @@ function parseArgs(argv) {
             continue;
         }
 
+        if (arg === '--warn-on-drop' && next) {
+            args.warnOnDrop.push(next);
+            index += 1;
+            continue;
+        }
+
         if (arg === '--fail-on-drop' && next) {
             args.failOnDrop.push(next);
             index += 1;
+            continue;
         }
     }
 
@@ -142,23 +150,30 @@ function printDiff(label, previous, current) {
     });
 }
 
-function parseFailRule(value) {
+function parseDropRule(value) {
     const normalized = String(value ?? '').trim();
     if (!normalized) {
         return null;
     }
 
-    if (normalized === 'total') {
-        return { group: 'total', key: 'total', label: 'total' };
+    const [rawSelector, rawThreshold] = normalized.split('=');
+    const selector = rawSelector?.trim() ?? '';
+    const threshold = rawThreshold ? Number(rawThreshold.trim()) : 1;
+    if (!selector || !Number.isFinite(threshold) || threshold <= 0) {
+        return null;
     }
 
-    const separatorIndex = normalized.indexOf(':');
+    if (selector === 'total') {
+        return { group: 'total', key: 'total', label: 'total', threshold };
+    }
+
+    const separatorIndex = selector.indexOf(':');
     if (separatorIndex === -1) {
         return null;
     }
 
-    const group = normalized.slice(0, separatorIndex).trim();
-    const key = normalized.slice(separatorIndex + 1).trim();
+    const group = selector.slice(0, separatorIndex).trim();
+    const key = selector.slice(separatorIndex + 1).trim();
     if (!group || !key) {
         return null;
     }
@@ -172,12 +187,13 @@ function parseFailRule(value) {
         group,
         key,
         label: `${group}:${key}`,
+        threshold,
     };
 }
 
-function evaluateFailRules(rules, previous, current) {
+function evaluateDropRules(rules, previous, current) {
     return rules
-        .map(parseFailRule)
+        .map(parseDropRule)
         .filter(Boolean)
         .map((rule) => {
             if (rule.group === 'total') {
@@ -192,7 +208,7 @@ function evaluateFailRules(rules, previous, current) {
             const after = currentCounter[rule.key] ?? 0;
             return { ...rule, before, after, delta: after - before };
         })
-        .filter((result) => result.delta < 0);
+        .filter((result) => result.delta <= -result.threshold);
 }
 
 async function run() {
@@ -240,11 +256,21 @@ async function run() {
             trafficBySource: summary.trafficBySource ?? {},
             source: summary.bySource ?? {},
         };
-        const violations = evaluateFailRules(args.failOnDrop, previousForRules, currentForRules);
-        if (violations.length > 0) {
+        const warnings = evaluateDropRules(args.warnOnDrop, previousForRules, currentForRules);
+        if (warnings.length > 0) {
+            console.warn('warn-on-drop violations:');
+            warnings.forEach((violation) => {
+                console.warn(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
+            });
+        } else if (args.warnOnDrop.length > 0) {
+            console.log('warn-on-drop: no violations');
+        }
+
+        const failures = evaluateDropRules(args.failOnDrop, previousForRules, currentForRules);
+        if (failures.length > 0) {
             console.error('fail-on-drop violations:');
-            violations.forEach((violation) => {
-                console.error(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta})`);
+            failures.forEach((violation) => {
+                console.error(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
             });
             process.exitCode = 2;
         } else if (args.failOnDrop.length > 0) {
