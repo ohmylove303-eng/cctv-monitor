@@ -10,6 +10,7 @@ function parseArgs(argv) {
         health: DEFAULT_HEALTH_URL,
         cctv: DEFAULT_CCTV_URL,
         snapshot: DEFAULT_SNAPSHOT_PATH,
+        json: false,
         writeSnapshot: false,
         writeSnapshotIfClean: false,
         warnOnDrop: [],
@@ -35,6 +36,11 @@ function parseArgs(argv) {
         if (arg === '--snapshot' && next) {
             args.snapshot = path.resolve(process.cwd(), next);
             index += 1;
+            continue;
+        }
+
+        if (arg === '--json') {
+            args.json = true;
             continue;
         }
 
@@ -156,6 +162,16 @@ function printDiff(label, previous, current) {
     });
 }
 
+function buildDiffSummary(previous, current) {
+    return {
+        total: diffCounters({ total: previous.total ?? 0 }, { total: current.total ?? 0 }),
+        region: diffCounters(previous.byRegion, current.byRegion),
+        type: diffCounters(previous.byType, current.byType),
+        coordinateQuality: diffCounters(previous.byCoordinateQuality, current.byCoordinateQuality),
+        trafficBySource: diffCounters(previous.trafficBySource, current.trafficBySource),
+    };
+}
+
 function parseDropRule(value) {
     const normalized = String(value ?? '').trim();
     if (!normalized) {
@@ -230,24 +246,17 @@ async function run() {
 
     const summary = buildSummary(healthPayload, cctvItems);
 
-    console.log(`checkedAt: ${summary.checkedAt}`);
-    console.log(`total: ${summary.total}`);
-    printCounter('byRegion', summary.byRegion);
-    printCounter('byType', summary.byType);
-    printCounter('byCoordinateQuality', summary.byCoordinateQuality);
-    printCounter('trafficBySource', summary.trafficBySource);
-
     let hasWarnings = false;
     let hasFailures = false;
+    let previous = null;
+    let diffSummary = null;
+    let warnings = [];
+    let failures = [];
+    let snapshotAction = 'none';
 
     if (fs.existsSync(args.snapshot)) {
-        const previous = JSON.parse(fs.readFileSync(args.snapshot, 'utf8'));
-        console.log(`snapshot: ${args.snapshot}`);
-        printDiff('total delta', { total: previous.total ?? 0 }, { total: summary.total ?? 0 });
-        printDiff('region delta', previous.byRegion, summary.byRegion);
-        printDiff('type delta', previous.byType, summary.byType);
-        printDiff('coordinateQuality delta', previous.byCoordinateQuality, summary.byCoordinateQuality);
-        printDiff('trafficBySource delta', previous.trafficBySource, summary.trafficBySource);
+        previous = JSON.parse(fs.readFileSync(args.snapshot, 'utf8'));
+        diffSummary = buildDiffSummary(previous, summary);
 
         const previousForRules = {
             total: previous.total ?? 0,
@@ -265,9 +274,67 @@ async function run() {
             trafficBySource: summary.trafficBySource ?? {},
             source: summary.bySource ?? {},
         };
-        const warnings = evaluateDropRules(args.warnOnDrop, previousForRules, currentForRules);
+        warnings = evaluateDropRules(args.warnOnDrop, previousForRules, currentForRules);
         if (warnings.length > 0) {
             hasWarnings = true;
+        }
+
+        failures = evaluateDropRules(args.failOnDrop, previousForRules, currentForRules);
+        if (failures.length > 0) {
+            hasFailures = true;
+            process.exitCode = 2;
+        }
+    }
+
+    if (args.writeSnapshot) {
+        fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
+        fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+        snapshotAction = 'updated';
+    } else if (args.writeSnapshotIfClean) {
+        if (hasWarnings || hasFailures) {
+            snapshotAction = 'skipped_not_clean';
+        } else {
+            fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
+            fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+            snapshotAction = 'updated_clean';
+        }
+    }
+
+    const result = hasFailures ? 'fail' : hasWarnings ? 'warn' : 'clean';
+
+    if (args.json) {
+        console.log(JSON.stringify({
+            result,
+            checkedAt: summary.checkedAt,
+            summary,
+            snapshot: {
+                path: args.snapshot,
+                exists: Boolean(previous),
+                action: snapshotAction,
+            },
+            diff: diffSummary,
+            warnings,
+            failures,
+        }, null, 2));
+        return;
+    }
+
+    console.log(`checkedAt: ${summary.checkedAt}`);
+    console.log(`total: ${summary.total}`);
+    printCounter('byRegion', summary.byRegion);
+    printCounter('byType', summary.byType);
+    printCounter('byCoordinateQuality', summary.byCoordinateQuality);
+    printCounter('trafficBySource', summary.trafficBySource);
+
+    if (previous) {
+        console.log(`snapshot: ${args.snapshot}`);
+        printDiff('total delta', { total: previous.total ?? 0 }, { total: summary.total ?? 0 });
+        printDiff('region delta', previous.byRegion, summary.byRegion);
+        printDiff('type delta', previous.byType, summary.byType);
+        printDiff('coordinateQuality delta', previous.byCoordinateQuality, summary.byCoordinateQuality);
+        printDiff('trafficBySource delta', previous.trafficBySource, summary.trafficBySource);
+
+        if (warnings.length > 0) {
             console.warn('warn-on-drop violations:');
             warnings.forEach((violation) => {
                 console.warn(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
@@ -276,14 +343,11 @@ async function run() {
             console.log('warn-on-drop: no violations');
         }
 
-        const failures = evaluateDropRules(args.failOnDrop, previousForRules, currentForRules);
         if (failures.length > 0) {
-            hasFailures = true;
             console.error('fail-on-drop violations:');
             failures.forEach((violation) => {
                 console.error(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
             });
-            process.exitCode = 2;
         } else if (args.failOnDrop.length > 0) {
             console.log('fail-on-drop: no violations');
         }
@@ -291,21 +355,15 @@ async function run() {
         console.log(`snapshot: ${args.snapshot} (missing)`);
     }
 
-    if (args.writeSnapshot) {
-        fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
-        fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+    if (snapshotAction === 'updated') {
         console.log(`snapshot updated: ${args.snapshot}`);
-    } else if (args.writeSnapshotIfClean) {
-        if (hasWarnings || hasFailures) {
-            console.log(`snapshot skipped: ${args.snapshot} (not clean)`);
-        } else {
-            fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
-            fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
-            console.log(`snapshot updated: ${args.snapshot} (clean)`);
-        }
+    } else if (snapshotAction === 'updated_clean') {
+        console.log(`snapshot updated: ${args.snapshot} (clean)`);
+    } else if (snapshotAction === 'skipped_not_clean') {
+        console.log(`snapshot skipped: ${args.snapshot} (not clean)`);
     }
 
-    console.log(`result: ${hasFailures ? 'fail' : hasWarnings ? 'warn' : 'clean'}`);
+    console.log(`result: ${result}`);
 }
 
 run().catch((error) => {
