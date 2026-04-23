@@ -11,6 +11,7 @@ function parseArgs(argv) {
         cctv: DEFAULT_CCTV_URL,
         snapshot: DEFAULT_SNAPSHOT_PATH,
         writeSnapshot: false,
+        writeSnapshotIfClean: false,
         warnOnDrop: [],
         failOnDrop: [],
     };
@@ -39,6 +40,11 @@ function parseArgs(argv) {
 
         if (arg === '--write-snapshot') {
             args.writeSnapshot = true;
+            continue;
+        }
+
+        if (arg === '--write-snapshot-if-clean') {
+            args.writeSnapshotIfClean = true;
             continue;
         }
 
@@ -231,6 +237,9 @@ async function run() {
     printCounter('byCoordinateQuality', summary.byCoordinateQuality);
     printCounter('trafficBySource', summary.trafficBySource);
 
+    let hasWarnings = false;
+    let hasFailures = false;
+
     if (fs.existsSync(args.snapshot)) {
         const previous = JSON.parse(fs.readFileSync(args.snapshot, 'utf8'));
         console.log(`snapshot: ${args.snapshot}`);
@@ -258,6 +267,7 @@ async function run() {
         };
         const warnings = evaluateDropRules(args.warnOnDrop, previousForRules, currentForRules);
         if (warnings.length > 0) {
+            hasWarnings = true;
             console.warn('warn-on-drop violations:');
             warnings.forEach((violation) => {
                 console.warn(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
@@ -268,6 +278,7 @@ async function run() {
 
         const failures = evaluateDropRules(args.failOnDrop, previousForRules, currentForRules);
         if (failures.length > 0) {
+            hasFailures = true;
             console.error('fail-on-drop violations:');
             failures.forEach((violation) => {
                 console.error(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta}, threshold=${violation.threshold})`);
@@ -284,7 +295,17 @@ async function run() {
         fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
         fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
         console.log(`snapshot updated: ${args.snapshot}`);
+    } else if (args.writeSnapshotIfClean) {
+        if (hasWarnings || hasFailures) {
+            console.log(`snapshot skipped: ${args.snapshot} (not clean)`);
+        } else {
+            fs.mkdirSync(path.dirname(args.snapshot), { recursive: true });
+            fs.writeFileSync(args.snapshot, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+            console.log(`snapshot updated: ${args.snapshot} (clean)`);
+        }
     }
+
+    console.log(`result: ${hasFailures ? 'fail' : hasWarnings ? 'warn' : 'clean'}`);
 }
 
 run().catch((error) => {
