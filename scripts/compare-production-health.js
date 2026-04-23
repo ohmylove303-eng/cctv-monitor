@@ -11,6 +11,7 @@ function parseArgs(argv) {
         cctv: DEFAULT_CCTV_URL,
         snapshot: DEFAULT_SNAPSHOT_PATH,
         writeSnapshot: false,
+        failOnDrop: [],
     };
 
     for (let index = 0; index < argv.length; index += 1) {
@@ -37,6 +38,12 @@ function parseArgs(argv) {
 
         if (arg === '--write-snapshot') {
             args.writeSnapshot = true;
+            continue;
+        }
+
+        if (arg === '--fail-on-drop' && next) {
+            args.failOnDrop.push(next);
+            index += 1;
         }
     }
 
@@ -135,6 +142,59 @@ function printDiff(label, previous, current) {
     });
 }
 
+function parseFailRule(value) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+        return null;
+    }
+
+    if (normalized === 'total') {
+        return { group: 'total', key: 'total', label: 'total' };
+    }
+
+    const separatorIndex = normalized.indexOf(':');
+    if (separatorIndex === -1) {
+        return null;
+    }
+
+    const group = normalized.slice(0, separatorIndex).trim();
+    const key = normalized.slice(separatorIndex + 1).trim();
+    if (!group || !key) {
+        return null;
+    }
+
+    const supportedGroups = new Set(['region', 'type', 'coordinateQuality', 'trafficBySource', 'source']);
+    if (!supportedGroups.has(group)) {
+        return null;
+    }
+
+    return {
+        group,
+        key,
+        label: `${group}:${key}`,
+    };
+}
+
+function evaluateFailRules(rules, previous, current) {
+    return rules
+        .map(parseFailRule)
+        .filter(Boolean)
+        .map((rule) => {
+            if (rule.group === 'total') {
+                const before = previous.total ?? 0;
+                const after = current.total ?? 0;
+                return { ...rule, before, after, delta: after - before };
+            }
+
+            const previousCounter = previous[rule.group] ?? {};
+            const currentCounter = current[rule.group] ?? {};
+            const before = previousCounter[rule.key] ?? 0;
+            const after = currentCounter[rule.key] ?? 0;
+            return { ...rule, before, after, delta: after - before };
+        })
+        .filter((result) => result.delta < 0);
+}
+
 async function run() {
     const args = parseArgs(process.argv.slice(2));
     const [healthPayload, cctvItems] = await Promise.all([
@@ -163,6 +223,33 @@ async function run() {
         printDiff('type delta', previous.byType, summary.byType);
         printDiff('coordinateQuality delta', previous.byCoordinateQuality, summary.byCoordinateQuality);
         printDiff('trafficBySource delta', previous.trafficBySource, summary.trafficBySource);
+
+        const previousForRules = {
+            total: previous.total ?? 0,
+            region: previous.byRegion ?? {},
+            type: previous.byType ?? {},
+            coordinateQuality: previous.byCoordinateQuality ?? {},
+            trafficBySource: previous.trafficBySource ?? {},
+            source: previous.bySource ?? {},
+        };
+        const currentForRules = {
+            total: summary.total ?? 0,
+            region: summary.byRegion ?? {},
+            type: summary.byType ?? {},
+            coordinateQuality: summary.byCoordinateQuality ?? {},
+            trafficBySource: summary.trafficBySource ?? {},
+            source: summary.bySource ?? {},
+        };
+        const violations = evaluateFailRules(args.failOnDrop, previousForRules, currentForRules);
+        if (violations.length > 0) {
+            console.error('fail-on-drop violations:');
+            violations.forEach((violation) => {
+                console.error(`  - ${violation.label}: ${violation.before} -> ${violation.after} (${violation.delta})`);
+            });
+            process.exitCode = 2;
+        } else if (args.failOnDrop.length > 0) {
+            console.log('fail-on-drop: no violations');
+        }
     } else {
         console.log(`snapshot: ${args.snapshot} (missing)`);
     }
