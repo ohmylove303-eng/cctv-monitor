@@ -5,6 +5,7 @@ import { incheonCctv } from '@/data/cctv-incheon';
 import { applyOfficialCoordinateOverrides } from '@/lib/official-coordinates';
 import { fetchGimpoItsCctv } from '@/lib/gimpo-its';
 import { fetchIncheonUticCctv } from '@/lib/incheon-utic';
+import { buildNationalItsDedupKey } from '@/lib/national-its';
 import type { CctvItem, CctvRegion, CctvType } from '@/types/cctv';
 
 export const dynamic = 'force-dynamic';
@@ -53,36 +54,6 @@ function sortCctv(items: CctvItem[]) {
         || TYPE_ORDER[a.type] - TYPE_ORDER[b.type]
         || a.name.localeCompare(b.name, 'ko')
     );
-}
-
-function buildNationalItsDedupKey(item: Record<string, unknown>) {
-    const explicitId = String(item.id ?? item.cctvId ?? item.cctvid ?? '').trim();
-    if (explicitId) {
-        return `id:${explicitId}`;
-    }
-
-    const roadSectionId = String(item.roadsectionid ?? '').trim();
-    if (roadSectionId) {
-        return `road:${roadSectionId}`;
-    }
-
-    const name = String(item.cctvname ?? item.cctvNm ?? item.name ?? '').trim();
-    const coordX = String(item.coordx ?? item.longitude ?? '').trim();
-    const coordY = String(item.coordy ?? item.latitude ?? '').trim();
-    if (name && coordX && coordY) {
-        return `name-coord:${name}::${coordX}::${coordY}`;
-    }
-
-    const streamUrl = String(item.cctvurl ?? item.cctvUrl ?? item.hlsUrl ?? item.streamUrl ?? '').trim();
-    if (name && streamUrl) {
-        return `name-stream:${name}::${streamUrl}`;
-    }
-
-    if (name) {
-        return `name:${name}`;
-    }
-
-    return `coord:${coordX}-${coordY}`;
 }
 
 export async function GET() {
