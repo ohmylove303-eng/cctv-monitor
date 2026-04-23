@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:regression:national-its": "node scripts/test-national-its-dedup.js"
+    "test:regression:national-its": "node scripts/test-national-its-dedup.js",
+    "monitor:production-health": "node scripts/compare-production-health.js"
   },
   "dependencies": {
     "@deck.gl/core": "^9.2.11",

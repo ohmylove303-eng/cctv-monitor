@@ -146,3 +146,4 @@ vite.config.ts.timestamp-*
 .vercel
 .env*.local
 log_dev.txt
+.monitoring/
