@@ -168,6 +168,7 @@ function buildDiffSummary(previous, current) {
         region: diffCounters(previous.byRegion, current.byRegion),
         type: diffCounters(previous.byType, current.byType),
         coordinateQuality: diffCounters(previous.byCoordinateQuality, current.byCoordinateQuality),
+        source: diffCounters(previous.bySource, current.bySource),
         trafficBySource: diffCounters(previous.trafficBySource, current.trafficBySource),
     };
 }
@@ -324,6 +325,7 @@ async function run() {
     printCounter('byRegion', summary.byRegion);
     printCounter('byType', summary.byType);
     printCounter('byCoordinateQuality', summary.byCoordinateQuality);
+    printCounter('bySource', summary.bySource);
     printCounter('trafficBySource', summary.trafficBySource);
 
     if (previous) {
@@ -332,6 +334,7 @@ async function run() {
         printDiff('region delta', previous.byRegion, summary.byRegion);
         printDiff('type delta', previous.byType, summary.byType);
         printDiff('coordinateQuality delta', previous.byCoordinateQuality, summary.byCoordinateQuality);
+        printDiff('source delta', previous.bySource, summary.bySource);
         printDiff('trafficBySource delta', previous.trafficBySource, summary.trafficBySource);
 
         if (warnings.length > 0) {
