@@ -5,11 +5,43 @@ const DEFAULT_HEALTH_URL = 'https://cctv-monitor.vercel.app/api/health';
 const DEFAULT_CCTV_URL = 'https://cctv-monitor.vercel.app/api/cctv';
 const DEFAULT_SNAPSHOT_PATH = path.resolve(process.cwd(), '.monitoring/production-health-summary.json');
 
+function printHelp() {
+    console.log(`Usage:
+  node scripts/compare-production-health.js [options]
+
+Options:
+  --health <url-or-file>            health JSON source
+  --cctv <url-or-file>              cctv array JSON source
+  --snapshot <path>                 snapshot path
+  --json                            print structured JSON result
+  --write-snapshot                  always update snapshot
+  --write-snapshot-if-clean         update snapshot only when result is clean
+  --warn-on-drop <rule>             warn when a metric drops by threshold
+  --fail-on-drop <rule>             fail with exit code 2 when a metric drops by threshold
+  --help                            show this help
+
+Rule format:
+  total
+  total=3
+  region:서울=1
+  type:traffic=2
+  coordinateQuality:verified=1
+  source:National-ITS=1
+  trafficBySource:National-ITS=1
+
+Examples:
+  npm run monitor:production-health -- --write-snapshot-if-clean
+  npm run monitor:production-health -- --warn-on-drop total --fail-on-drop total=3
+  npm run monitor:production-health -- --fail-on-drop region:서울=1 --json
+`);
+}
+
 function parseArgs(argv) {
     const args = {
         health: DEFAULT_HEALTH_URL,
         cctv: DEFAULT_CCTV_URL,
         snapshot: DEFAULT_SNAPSHOT_PATH,
+        help: false,
         json: false,
         writeSnapshot: false,
         writeSnapshotIfClean: false,
@@ -36,6 +68,11 @@ function parseArgs(argv) {
         if (arg === '--snapshot' && next) {
             args.snapshot = path.resolve(process.cwd(), next);
             index += 1;
+            continue;
+        }
+
+        if (arg === '--help' || arg === '-h') {
+            args.help = true;
             continue;
         }
 
@@ -236,6 +273,12 @@ function evaluateDropRules(rules, previous, current) {
 
 async function run() {
     const args = parseArgs(process.argv.slice(2));
+
+    if (args.help) {
+        printHelp();
+        return;
+    }
+
     const [healthPayload, cctvItems] = await Promise.all([
         loadJson(args.health),
         loadJson(args.cctv),
