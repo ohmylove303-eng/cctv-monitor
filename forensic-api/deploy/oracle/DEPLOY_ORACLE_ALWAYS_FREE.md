@@ -178,4 +178,5 @@ bash validate-oci-access.sh
 - Oracle Always Free는 지역별 수용량 부족이 자주 납니다.
 - 장시간 완전 idle이면 reclaim될 수 있습니다.
 - YOLO 실운용은 ARM A1에서도 가능하지만, 처리량은 낮습니다.
-- 번호판 OCR / ReID는 아직 이 저장소 백엔드에 미구현입니다.
+- 번호판 OCR은 EasyOCR hook/diagnostics까지 연결됐지만 실전 정확도 검증은 진행 중입니다.
+- ReID 임베딩 기반 동일 차량 재식별은 아직 미구현입니다.

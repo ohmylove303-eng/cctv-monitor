@@ -588,7 +588,7 @@ export function buildRouteMonitoringPlan(
 
     const segmentLimitMeters = destinationCandidate ? Math.abs(destinationCandidate.signedForwardMeters) + 25 : null;
 
-    const candidates = rawCandidates
+    const scoredCandidates = rawCandidates
         .filter((candidate) => {
             const directionAligned = resolvedDirection === 'forward'
                 ? candidate.signedForwardMeters > 25
@@ -632,12 +632,14 @@ export function buildRouteMonitoringPlan(
                 etaMinutes: candidate.etaMinutes,
                 timeWindowLabel: getEtaWindowLabel(candidate.etaMinutes),
             } satisfies RouteMonitoringCandidate;
-        })
+        });
+
+    const candidates = scoredCandidates
         .sort((left, right) =>
-            Number(right.isForward) - Number(left.isForward)
-            || right.identificationScore - left.identificationScore
-            || left.lateralOffsetMeters - right.lateralOffsetMeters
+            left.etaMinutes - right.etaMinutes
             || left.routeDistanceKm - right.routeDistanceKm
+            || left.lateralOffsetMeters - right.lateralOffsetMeters
+            || right.identificationScore - left.identificationScore
             || left.distanceKm - right.distanceKm
         )
         .map((candidate, index) => ({
@@ -647,7 +649,15 @@ export function buildRouteMonitoringPlan(
 
     const focused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 500);
     const fallbackFocused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 700);
-    const prioritizedFocus = (focused.length > 0 ? focused : fallbackFocused).slice(0, 8);
+    const prioritizedFocus = [...(focused.length > 0 ? focused : fallbackFocused)]
+        .sort((left, right) =>
+            right.focusScore - left.focusScore
+            || right.identificationScore - left.identificationScore
+            || left.etaMinutes - right.etaMinutes
+            || left.lateralOffsetMeters - right.lateralOffsetMeters
+        )
+        .slice(0, 8)
+        .sort((left, right) => left.travelOrder - right.travelOrder);
     const focusIds = prioritizedFocus.map((candidate) => candidate.id);
     const immediateIds = candidates
         .filter((candidate) => candidate.timeWindowLabel === '즉시')
@@ -663,7 +673,7 @@ export function buildRouteMonitoringPlan(
         .map((candidate) => candidate.id);
     const highIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'high').length;
     const mediumIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'medium').length;
-    const prioritizedIds = [startItem.id, ...prioritizedFocus.map((candidate) => candidate.id), ...candidates.map((candidate) => candidate.id)]
+    const prioritizedIds = [startItem.id, ...candidates.map((candidate) => candidate.id)]
         .filter((id, index, array) => array.indexOf(id) === index);
 
     return {
