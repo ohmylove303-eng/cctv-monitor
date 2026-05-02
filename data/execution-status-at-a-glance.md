@@ -1,6 +1,6 @@
 # Execution Status at a Glance
 
-생성 시각: 2026-05-02T00:17:03.284Z
+생성 시각: 2026-05-02T02:18:13.142Z
 
 | 축 | 상태 | 요약 | 다음 |
 | --- | --- | --- | --- |
@@ -22,6 +22,19 @@
 - OCR/ALPR: pending_review / active reports 0
 - VMMR: active models 0 / datasets 0
 - vehicle-reference: entries 0
+
+## 미구현 큐
+
+| 축 | 단계 | 모델 | 상태 | 막힌 이유 | 다음 실행 |
+| --- | --- | --- | --- | --- | --- |
+| 좌표 P1/P2 수동 승인 | data_review | GPT-5.4 mini | waiting_for_manual_approval | approve=Y reviewed rows required | review-needed-p1 rows approve gate |
+| CCTV vision line-zone calibration | data_review | GPT-5.4 mini | waiting_for_line_zone_review | lineZoneForward/lineZoneReverse reviewer fields required | fill review packet and run safe apply |
+| OCR/ALPR 실데이터 백테스트 | backtest | GPT-5.4 nano | waiting_for_reviewed_observations | reviewed OCR/ALPR observations required | populate samples and observations |
+| vehicle-reference active catalog | data_review | GPT-5.4 mini | waiting_for_verified_reference_rows | reviewStatus=active vehicle reference rows required | add verified make/model rows |
+| VMMR fine-grained activation | backtest | GPT-5.4 nano | waiting_for_model_report | mAP threshold report required | add validated VMMR model report |
+| ReID 운영 백테스트 승인 | backtest | GPT-5.4 nano | waiting_for_sample_threshold | sample count and reviewed active report threshold not met | increase reviewed samples and regenerate report |
+| Postgres tracking store live 연결 | verification | GPT-5.4 mini | waiting_for_dsn | TRACK_STORE_DSN missing | configure TRACK_STORE_DSN |
+| 외부 교통 API verified congestion | design | GPT-5.5 | eta_spacing_inferred_only | verified traffic speed/volume source not connected | connect external traffic source before verified congestion |
 
 ## 최근 검증 메모
 

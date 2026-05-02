@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "taxonomy": "execution_status_at_a_glance_v1",
-  "generatedAt": "2026-05-02T00:17:03.284Z",
+  "generatedAt": "2026-05-02T02:18:13.142Z",
   "coordinates": {
     "activeRows": 34,
     "reviewNeededRows": 172,
@@ -132,5 +132,79 @@
         "model": "GPT-5.5"
       }
     ]
-  }
+  },
+  "implementationQueue": [
+    {
+      "axis": "좌표 P1/P2 수동 승인",
+      "stage": "data_review",
+      "model": "GPT-5.4 mini",
+      "status": "waiting_for_manual_approval",
+      "blocker": "approve=Y reviewed rows required",
+      "nextAction": "review-needed-p1 rows approve gate",
+      "evidence": "active=34, review=172, pending=54"
+    },
+    {
+      "axis": "CCTV vision line-zone calibration",
+      "stage": "data_review",
+      "model": "GPT-5.4 mini",
+      "status": "waiting_for_line_zone_review",
+      "blocker": "lineZoneForward/lineZoneReverse reviewer fields required",
+      "nextAction": "fill review packet and run safe apply",
+      "evidence": "packet=3, frames=9, active=0"
+    },
+    {
+      "axis": "OCR/ALPR 실데이터 백테스트",
+      "stage": "backtest",
+      "model": "GPT-5.4 nano",
+      "status": "waiting_for_reviewed_observations",
+      "blocker": "reviewed OCR/ALPR observations required",
+      "nextAction": "populate samples and observations",
+      "evidence": "status=pending_review, activeReports=0, buckets=0/4"
+    },
+    {
+      "axis": "vehicle-reference active catalog",
+      "stage": "data_review",
+      "model": "GPT-5.4 mini",
+      "status": "waiting_for_verified_reference_rows",
+      "blocker": "reviewStatus=active vehicle reference rows required",
+      "nextAction": "add verified make/model rows",
+      "evidence": "entries=0, status=empty"
+    },
+    {
+      "axis": "VMMR fine-grained activation",
+      "stage": "backtest",
+      "model": "GPT-5.4 nano",
+      "status": "waiting_for_model_report",
+      "blocker": "mAP threshold report required",
+      "nextAction": "add validated VMMR model report",
+      "evidence": "activeModels=0, datasets=0, threshold=0.85"
+    },
+    {
+      "axis": "ReID 운영 백테스트 승인",
+      "stage": "backtest",
+      "model": "GPT-5.4 nano",
+      "status": "waiting_for_sample_threshold",
+      "blocker": "sample count and reviewed active report threshold not met",
+      "nextAction": "increase reviewed samples and regenerate report",
+      "evidence": "samples=11, match=1, fp=0"
+    },
+    {
+      "axis": "Postgres tracking store live 연결",
+      "stage": "verification",
+      "model": "GPT-5.4 mini",
+      "status": "waiting_for_dsn",
+      "blocker": "TRACK_STORE_DSN missing",
+      "nextAction": "configure TRACK_STORE_DSN",
+      "evidence": "backend=auto, live=dsn_missing, fallback=true"
+    },
+    {
+      "axis": "외부 교통 API verified congestion",
+      "stage": "design",
+      "model": "GPT-5.5",
+      "status": "eta_spacing_inferred_only",
+      "blocker": "verified traffic speed/volume source not connected",
+      "nextAction": "connect external traffic source before verified congestion",
+      "evidence": "delayRiskScore, routeDeviationRisk, laneDirectionStatus, trafficCongestionStatus=eta_spacing"
+    }
+  ]
 }

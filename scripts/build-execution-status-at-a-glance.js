@@ -406,8 +406,102 @@ function buildRows(summary) {
     ];
 }
 
+function buildImplementationQueue(summary) {
+    const queue = [
+        {
+            axis: '좌표 P1/P2 수동 승인',
+            stage: 'data_review',
+            model: 'GPT-5.4 mini',
+            status: summary.coordinates.reviewNeededRows > 0 ? 'waiting_for_manual_approval' : 'implemented',
+            blocker: summary.coordinates.reviewNeededRows > 0 ? 'approve=Y reviewed rows required' : 'none',
+            nextAction: 'review-needed-p1 rows approve gate',
+            evidence: `active=${formatNumber(summary.coordinates.activeRows)}, review=${formatNumber(summary.coordinates.reviewNeededRows)}, pending=${formatNumber(summary.coordinates.pendingRows)}`,
+        },
+        {
+            axis: 'CCTV vision line-zone calibration',
+            stage: 'data_review',
+            model: 'GPT-5.4 mini',
+            status: summary.visionCalibration.promoteDryRunActiveRows > 0 ? 'implemented' : 'waiting_for_line_zone_review',
+            blocker: summary.visionCalibration.promoteDryRunActiveRows > 0 ? 'none' : 'lineZoneForward/lineZoneReverse reviewer fields required',
+            nextAction: 'fill review packet and run safe apply',
+            evidence: `packet=${formatNumber(summary.visionCalibration.reviewPacketRows)}, frames=${formatNumber(summary.visionCalibration.reviewPacketSampleFrames)}, active=${formatNumber(summary.visionCalibration.promoteDryRunActiveRows)}`,
+        },
+        {
+            axis: 'OCR/ALPR 실데이터 백테스트',
+            stage: 'backtest',
+            model: 'GPT-5.4 nano',
+            status: summary.ocrAlpr.activeReportCount > 0 ? 'implemented' : 'waiting_for_reviewed_observations',
+            blocker: summary.ocrAlpr.activeReportCount > 0 ? 'none' : 'reviewed OCR/ALPR observations required',
+            nextAction: 'populate samples and observations',
+            evidence: `status=${summary.ocrAlpr.status}, activeReports=${formatNumber(summary.ocrAlpr.activeReportCount)}, buckets=${summary.ocrAlpr.completedBuckets.length}/${summary.ocrAlpr.requiredBuckets.length}`,
+        },
+        {
+            axis: 'vehicle-reference active catalog',
+            stage: 'data_review',
+            model: 'GPT-5.4 mini',
+            status: summary.vehicleReference.entries > 0 ? 'implemented' : 'waiting_for_verified_reference_rows',
+            blocker: summary.vehicleReference.entries > 0 ? 'none' : 'reviewStatus=active vehicle reference rows required',
+            nextAction: 'add verified make/model rows',
+            evidence: `entries=${formatNumber(summary.vehicleReference.entries)}, status=${summary.vehicleReference.status}`,
+        },
+        {
+            axis: 'VMMR fine-grained activation',
+            stage: 'backtest',
+            model: 'GPT-5.4 nano',
+            status: summary.vehicleVmmr.activeModelCount > 0 ? 'implemented' : 'waiting_for_model_report',
+            blocker: summary.vehicleVmmr.activeModelCount > 0 ? 'none' : 'mAP threshold report required',
+            nextAction: 'add validated VMMR model report',
+            evidence: `activeModels=${formatNumber(summary.vehicleVmmr.activeModelCount)}, datasets=${formatNumber(summary.vehicleVmmr.datasets)}, threshold=${formatNumber(summary.vehicleVmmr.activationThreshold)}`,
+        },
+        {
+            axis: 'ReID 운영 백테스트 승인',
+            stage: 'backtest',
+            model: 'GPT-5.4 nano',
+            status: summary.vehicleReid.runtimeActiveReports > 0 ? 'implemented' : 'waiting_for_sample_threshold',
+            blocker: summary.vehicleReid.runtimeActiveReports > 0 ? 'none' : 'sample count and reviewed active report threshold not met',
+            nextAction: 'increase reviewed samples and regenerate report',
+            evidence: `samples=${formatNumber(summary.vehicleReid.runtimeSampleCountTotal)}, match=${formatNumber(summary.vehicleReid.runtimeMatchSuccessRate)}, fp=${formatNumber(summary.vehicleReid.runtimeFalsePositiveRate)}`,
+        },
+        {
+            axis: 'Postgres tracking store live 연결',
+            stage: 'verification',
+            model: 'GPT-5.4 mini',
+            status: summary.trackingStore.dsnConfigured ? 'ready_for_live_roundtrip' : 'waiting_for_dsn',
+            blocker: summary.trackingStore.dsnConfigured ? 'none' : 'TRACK_STORE_DSN missing',
+            nextAction: summary.trackingStore.dsnConfigured ? 'run live roundtrip' : 'configure TRACK_STORE_DSN',
+            evidence: `backend=${summary.trackingStore.requestedBackend}, live=${summary.trackingStore.liveStatus}, fallback=${String(summary.trackingStore.fallbackEnabled)}`,
+        },
+        {
+            axis: '외부 교통 API verified congestion',
+            stage: 'design',
+            model: 'GPT-5.5',
+            status: summary.routeMonitoring.features.includes('trafficCongestionStatus=eta_spacing') ? 'eta_spacing_inferred_only' : 'missing',
+            blocker: 'verified traffic speed/volume source not connected',
+            nextAction: 'connect external traffic source before verified congestion',
+            evidence: summary.routeMonitoring.features.join(', ') || 'route features missing',
+        },
+    ];
+
+    const order = {
+        waiting_for_manual_approval: 1,
+        waiting_for_line_zone_review: 2,
+        waiting_for_reviewed_observations: 3,
+        waiting_for_verified_reference_rows: 4,
+        waiting_for_model_report: 5,
+        waiting_for_sample_threshold: 6,
+        waiting_for_dsn: 7,
+        ready_for_live_roundtrip: 8,
+        eta_spacing_inferred_only: 9,
+        missing: 10,
+        implemented: 20,
+    };
+
+    return queue.sort((a, b) => (order[a.status] ?? 99) - (order[b.status] ?? 99));
+}
+
 function buildMarkdown(summary) {
     const rows = buildRows(summary);
+    const queue = summary.implementationQueue ?? buildImplementationQueue(summary);
     const approvedIds = summary.coordinates.approvedIds.length > 0 ? summary.coordinates.approvedIds.join(', ') : '없음';
     const topReviewTargets = summary.coordinates.topReviewTargets.length > 0 ? summary.coordinates.topReviewTargets.join(', ') : '없음';
 
@@ -427,6 +521,12 @@ ${rows.map((row) => `| ${row.axis} | ${row.status} | ${row.detail} | ${row.next}
 - OCR/ALPR: ${summary.ocrAlpr.status} / active reports ${summary.ocrAlpr.activeReportCount ?? 0}
 - VMMR: active models ${summary.vehicleVmmr.activeModelCount ?? 0} / datasets ${summary.vehicleVmmr.datasets ?? 0}
 - vehicle-reference: entries ${summary.vehicleReference.entries ?? 0}
+
+## 미구현 큐
+
+| 축 | 단계 | 모델 | 상태 | 막힌 이유 | 다음 실행 |
+| --- | --- | --- | --- | --- | --- |
+${queue.map((item) => `| ${item.axis} | ${item.stage} | ${item.model} | ${item.status} | ${item.blocker} | ${item.nextAction} |`).join('\n')}
 
 ## 최근 검증 메모
 
@@ -462,6 +562,7 @@ function buildSummary(generatedAt = new Date().toISOString()) {
         routeMonitoring: detectRouteMonitoringFeatures(),
         executionHarness,
     };
+    summary.implementationQueue = buildImplementationQueue(summary);
 
     return summary;
 }

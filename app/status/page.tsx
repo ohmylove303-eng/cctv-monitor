@@ -66,6 +66,15 @@ type StatusData = {
         currentGoal: string;
         phases: Array<{ stage: string; model: string }>;
     };
+    implementationQueue?: Array<{
+        axis: string;
+        stage: string;
+        model: string;
+        status: string;
+        blocker: string;
+        nextAction: string;
+        evidence: string;
+    }>;
 };
 
 async function loadStatus(): Promise<StatusData> {
@@ -137,9 +146,23 @@ function StepChip({
     );
 }
 
+function statusColor(status: string) {
+    if (status === 'implemented') {
+        return '#22c55e';
+    }
+    if (status === 'ready_for_live_roundtrip') {
+        return '#38bdf8';
+    }
+    if (status.includes('waiting')) {
+        return '#f59e0b';
+    }
+    return '#94a3b8';
+}
+
 export default async function StatusPage() {
     const data = await loadStatus();
     const phases = data.executionHarness.phases;
+    const queue = data.implementationQueue ?? [];
 
     return (
         <main
@@ -254,6 +277,72 @@ export default async function StatusPage() {
                         detail={data.executionHarness.phases.map((phase) => `${phase.stage}:${phase.model}`).join(' · ')}
                         accent="#c084fc"
                     />
+                </section>
+
+                <section
+                    style={{
+                        borderRadius: 18,
+                        border: '1px solid rgba(148,163,184,0.18)',
+                        background: 'rgba(15,23,42,0.72)',
+                        padding: 18,
+                        display: 'grid',
+                        gap: 14,
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                        <div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: '#e2e8f0' }}>미구현 큐</div>
+                            <div style={{ marginTop: 5, fontSize: 12, color: '#94a3b8' }}>
+                                하네스가 막고 있는 항목과 다음 실행 단계를 분리해서 보여줍니다.
+                            </div>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+                            {queue.filter((item) => item.status !== 'implemented').length} pending / {queue.length} total
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
+                        {queue.map((item) => {
+                            const color = statusColor(item.status);
+                            return (
+                                <article
+                                    key={item.axis}
+                                    style={{
+                                        borderRadius: 14,
+                                        border: `1px solid ${color}33`,
+                                        background: `${color}0f`,
+                                        padding: 14,
+                                        minHeight: 150,
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                                        <div style={{ fontSize: 14, fontWeight: 800, color: '#f8fafc', lineHeight: 1.35 }}>{item.axis}</div>
+                                        <div
+                                            style={{
+                                                flex: '0 0 auto',
+                                                borderRadius: 999,
+                                                border: `1px solid ${color}55`,
+                                                color,
+                                                padding: '4px 8px',
+                                                fontSize: 10,
+                                                fontWeight: 800,
+                                                letterSpacing: '0.08em',
+                                                textTransform: 'uppercase',
+                                            }}
+                                        >
+                                            {item.stage}
+                                        </div>
+                                    </div>
+                                    <div style={{ marginTop: 10, fontSize: 12, color, fontWeight: 800 }}>{item.status}</div>
+                                    <div style={{ marginTop: 8, fontSize: 12, color: '#cbd5e1', lineHeight: 1.55 }}>{item.evidence}</div>
+                                    <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.55 }}>blocker: {item.blocker}</div>
+                                    <div style={{ marginTop: 10, fontSize: 12, color: '#e2e8f0', lineHeight: 1.55 }}>
+                                        next: {item.nextAction} · {item.model}
+                                    </div>
+                                </article>
+                            );
+                        })}
+                    </div>
                 </section>
 
                 <section
