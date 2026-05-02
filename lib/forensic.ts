@@ -48,6 +48,9 @@ export function buildForensicTrackScope(items: CctvItem[]): ForensicTrackCamera[
             lng: item.lng,
             source: item.source,
             streamUrl: item.hlsUrl || item.streamUrl,
+            visionCalibration: item.visionCalibration,
+            trafficCongestionStatus: 'unavailable',
+            trafficCongestionSource: 'none',
         }));
 }
 

@@ -147,3 +147,4 @@ vite.config.ts.timestamp-*
 .env*.local
 log_dev.txt
 .monitoring/
+.vision-calibration-samples/

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_reid_readiness_v1",
+  "policy": {
+    "noIdentityMatchWithoutValidatedEmbedding": true,
+    "activationMetric": "top1Accuracy",
+    "activationThreshold": 0.85,
+    "maxFalsePositiveRate": 0.05,
+    "notes": "Same-vehicle ReID output remains disabled until an active embedding model report passes this gate."
+  },
+  "datasets": [],
+  "modelReports": []
+}

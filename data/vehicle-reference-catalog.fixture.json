@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "verified_vehicle_reference_v1",
+  "policy": {
+    "noInferenceWithoutEvidence": true,
+    "minimumEvidence": "fixture_only"
+  },
+  "entries": [
+    {
+      "id": "fixture-verified-car-001",
+      "fixture": true,
+      "genericVehicleType": "car",
+      "make": "fixture-make",
+      "model": "fixture-model",
+      "subtype": "fixture-subtype",
+      "market": "fixture",
+      "evidence": {
+        "source": "fixture-only",
+        "verificationMethod": "unit test fixture",
+        "sampleCount": 1
+      }
+    }
+  ]
+}

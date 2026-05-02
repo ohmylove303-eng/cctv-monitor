@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "ocr_alpr_backtest_report_v1",
+  "active_report_count": 1,
+  "policy": {
+    "noRuntimeAccuracyApprovalWithoutReviewedReport": true,
+    "requiredBuckets": [
+      "night",
+      "backlight",
+      "long_distance",
+      "low_resolution"
+    ],
+    "minSamplesPerBucket": 30,
+    "exactPlateAccuracyThreshold": 0.85,
+    "candidateRecallThreshold": 0.9,
+    "falsePositiveRateMax": 0.05,
+    "notes": "fixture_only"
+  },
+  "reports": [
+    {
+      "id": "fixture-ocr-alpr-report-001",
+      "fixture": true,
+      "status": "active",
+      "engine": "easyocr",
+      "datasetId": "fixture-ocr-alpr-dataset-001",
+      "bucketResults": [
+        {
+          "bucket": "night",
+          "sampleCount": 30,
+          "exactPlateAccuracy": 0.86,
+          "candidateRecall": 0.91,
+          "falsePositiveRate": 0.04
+        },
+        {
+          "bucket": "backlight",
+          "sampleCount": 30,
+          "exactPlateAccuracy": 0.87,
+          "candidateRecall": 0.92,
+          "falsePositiveRate": 0.04
+        },
+        {
+          "bucket": "long_distance",
+          "sampleCount": 30,
+          "exactPlateAccuracy": 0.85,
+          "candidateRecall": 0.9,
+          "falsePositiveRate": 0.05
+        },
+        {
+          "bucket": "low_resolution",
+          "sampleCount": 30,
+          "exactPlateAccuracy": 0.86,
+          "candidateRecall": 0.91,
+          "falsePositiveRate": 0.04
+        }
+      ],
+      "evidence": {
+        "datasetPath": "/fixture/ocr-alpr",
+        "reportPath": "/fixture/reports/ocr-alpr-backtest.json",
+        "reviewer": "fixture-auditor",
+        "reviewedAt": "2026-04-29"
+      }
+    }
+  ]
+}

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Actual Data Validation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: rgba(7, 17, 31, 0.92);
+      --border: rgba(64, 196, 255, 0.18);
+      --text: #e5eefb;
+      --muted: #93c5fd;
+      --accent: #6ee7b7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: linear-gradient(180deg, #07111f 0%, #0b1629 48%, #09101b 100%);
+      color: var(--text);
+    }
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 28px;
+      min-height: 100vh;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+      overflow: hidden;
+    }
+    .header {
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      color: #7dd3fc;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 8px 0 0;
+      font-size: 30px;
+      line-height: 1.15;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      padding: 18px 24px 0;
+    }
+    .metric {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .metric .label { font-size: 12px; color: var(--muted); }
+    .metric .value { margin-top: 6px; font-size: 24px; font-weight: 800; }
+    .content {
+      display: grid;
+      grid-template-columns: minmax(0, 1.75fr) minmax(340px, 0.95fr);
+      gap: 20px;
+      padding: 20px 24px 24px;
+      align-items: start;
+    }
+    .image-wrap {
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0a1322;
+    }
+    .image-wrap img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .side {
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      padding: 20px;
+    }
+    .side h2 {
+      margin: 8px 0 4px;
+      font-size: 24px;
+    }
+    .tag {
+      display: inline-block;
+      border: 1px solid rgba(16, 185, 129, 0.18);
+      background: rgba(16, 185, 129, 0.08);
+      color: var(--accent);
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    .subpanel {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(96, 165, 250, 0.08);
+      border: 1px solid rgba(96, 165, 250, 0.18);
+      color: #dbeafe;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+    .subpanel strong { color: #fff; }
+    ul { margin: 10px 0 0; padding-left: 18px; line-height: 1.8; }
+    @media (max-width: 1100px) {
+      .grid, .content { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="header">
+      <div class="eyebrow">ACTUAL DATA VALIDATION</div>
+      <h1>실제 CCTV 데이터 검증 결과</h1>
+    </div>
+    <div class="grid">
+      <div class="metric"><div class="label">전체 CCTV</div><div class="value">792대</div></div>
+      <div class="metric"><div class="label">검증좌표</div><div class="value">580대</div></div>
+      <div class="metric"><div class="label">스트림 보유</div><div class="value">658개</div></div>
+      <div class="metric"><div class="label">교통 스트림</div><div class="value">532개</div></div>
+    </div>
+    <div class="content">
+      <div class="image-wrap">
+        <img src="file:///Users/jungsunghoon/cctv-monitor/app/public/actual-validation-annotated.png" alt="실제 CCTV 검증 프레임" />
+      </div>
+      <aside class="side">
+        <div class="eyebrow">SELECTED CCTV</div>
+        <h2>GTIC-CCTV049 · 걸포사거리</h2>
+        <div>카메라 ID: GTIC-CCTV049</div>
+        <div>지역: 김포</div>
+        <div>구역: 북변동</div>
+        <div>주소: 북변동 657-9</div>
+        <div>운영: 김포시교통정보센터</div>
+        <div>좌표: 37.630428, 126.710930</div>
+        <div>좌표 출처: official · verified</div>
+        <div class="tag">실제 HLS 스트림 캡처 + 실제 분석 응답</div>
+        <div class="subpanel">
+          <strong>분석 결과</strong><br />
+          내장 데모 차량 분석 완료<br />
+          job_id: analysis-06f02f32-6b2<br />
+          vehicle_count: 1<br />
+          confidence: 82.0%<br />
+          tsa_status: demo_fallback<br />
+          events: vehicle_detected, traffic_flow_sampled
+        </div>
+        <div class="subpanel">
+          <strong>검증 포인트</strong>
+          <ul>
+            <li>실제 CCTV 목록 792대 로드</li>
+            <li>실제 스트림 카메라로 분석 요청</li>
+            <li>실제 프레임 캡처 이미지를 페이지에 삽입</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+</body>
+</html>

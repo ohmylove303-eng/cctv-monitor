@@ -2,9 +2,15 @@ import type {
     CctvItem,
     ForensicRouteContext,
     ForensicTrackCamera,
+    LaneDirectionSource,
+    LaneDirectionStatus,
     RoadPreset,
+    RouteDeviationRisk,
     RouteDirection,
     RouteScopeMode,
+    TrafficCongestionLevel,
+    TrafficCongestionSource,
+    TrafficCongestionStatus,
 } from '@/types/cctv';
 import { hasLiveTrafficStream } from '@/lib/traffic-sources';
 import { getRoadPresetLabel, matchesRoadPreset } from '@/lib/road-presets';
@@ -24,6 +30,15 @@ export type RouteMonitoringCandidate = {
     identificationScore: number;
     identificationGrade: 'high' | 'medium' | 'low';
     identificationReason: string;
+    laneDirectionStatus: LaneDirectionStatus;
+    laneDirectionLabel?: 'forward' | 'reverse';
+    laneDirectionSource: LaneDirectionSource;
+    delayRiskScore: number;
+    routeDeviationRisk: RouteDeviationRisk;
+    trafficCongestionStatus: TrafficCongestionStatus;
+    trafficCongestionLevel?: TrafficCongestionLevel;
+    trafficCongestionSource: TrafficCongestionSource;
+    visionCalibration?: CctvItem['visionCalibration'];
     etaMinutes: number;
     timeWindowLabel: string;
 };
@@ -228,6 +243,25 @@ function assessIdentificationPriority(
         score -= 4;
     }
 
+    if (item.visionCalibration) {
+        const calibration = item.visionCalibration;
+        if (calibration.visionTier === 'tier_a') {
+            score = Math.max(score, 86);
+            reasons.push('검증 Tier-A 시야');
+        } else if (calibration.visionTier === 'tier_b') {
+            score = Math.max(score, 64);
+            reasons.push('검증 Tier-B 시야');
+        } else {
+            score = Math.min(score, 46);
+            reasons.push('검증 Tier-C 흐름감시');
+        }
+
+        if (calibration.directionCalibrationStatus === 'calibrated') {
+            score += 4;
+            reasons.push('상하행 계수선 검증');
+        }
+    }
+
     const clamped = Math.max(0, Math.min(100, score));
     const grade: RouteMonitoringCandidate['identificationGrade'] =
         clamped >= 78 ? 'high' : clamped >= 58 ? 'medium' : 'low';
@@ -244,6 +278,147 @@ function assessIdentificationPriority(
         score: clamped,
         grade,
         reason: reasons.slice(0, 3).join(' · '),
+    };
+}
+
+function assessRouteDeviationRisk(
+    lateralOffsetMeters: number,
+    visionCalibration?: CctvItem['visionCalibration'],
+): RouteDeviationRisk {
+    if (!visionCalibration) {
+        return 'unknown';
+    }
+
+    let score = 0;
+
+    if (visionCalibration.visionTier === 'tier_a') {
+        score -= 1;
+    } else if (visionCalibration.visionTier === 'tier_b') {
+        score += 0;
+    } else {
+        score += 2;
+    }
+
+    if (visionCalibration.directionCalibrationStatus === 'calibrated') {
+        score -= 1;
+    } else {
+        score += 2;
+    }
+
+    if (lateralOffsetMeters > 500) {
+        score += 3;
+    } else if (lateralOffsetMeters > 250) {
+        score += 2;
+    } else if (lateralOffsetMeters > 120) {
+        score += 1;
+    }
+
+    if (score >= 4) return 'high';
+    if (score >= 2) return 'medium';
+    return 'low';
+}
+
+function assessLaneDirection(
+    resolvedDirection: 'forward' | 'reverse',
+    visionCalibration?: CctvItem['visionCalibration'],
+): {
+    status: LaneDirectionStatus;
+    label?: 'forward' | 'reverse';
+    source: LaneDirectionSource;
+} {
+    if (
+        !visionCalibration
+        || visionCalibration.directionCalibrationStatus !== 'calibrated'
+        || !visionCalibration.lineZones?.forward
+        || !visionCalibration.lineZones?.reverse
+    ) {
+        return {
+            status: 'unknown',
+            source: 'not_calibrated',
+        };
+    }
+
+    return {
+        status: 'calibrated',
+        label: resolvedDirection,
+        source: 'vision_line_zone',
+    };
+}
+
+function assessDelayRiskScore(
+    routeDistanceKm: number,
+    etaMinutes: number,
+    routeDeviationRisk: RouteDeviationRisk,
+    visionCalibration?: CctvItem['visionCalibration'],
+) {
+    let score = 12 + etaMinutes * 3 + routeDistanceKm * 2;
+
+    if (routeDeviationRisk === 'unknown') {
+        score += 4;
+    } else if (routeDeviationRisk === 'medium') {
+        score += 6;
+    } else if (routeDeviationRisk === 'high') {
+        score += 16;
+    } else {
+        score -= 4;
+    }
+
+    if (visionCalibration) {
+        if (visionCalibration.visionTier === 'tier_a') {
+            score -= 8;
+        } else if (visionCalibration.visionTier === 'tier_b') {
+            score -= 4;
+        } else {
+            score += 3;
+        }
+
+        if (visionCalibration.directionCalibrationStatus === 'calibrated') {
+            score -= 3;
+        } else {
+            score += 2;
+        }
+    }
+
+    return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function assessEtaSpacingTrafficCongestion(candidates: Array<Pick<RouteMonitoringCandidate, 'etaMinutes'>>): {
+    status: TrafficCongestionStatus;
+    level?: TrafficCongestionLevel;
+    source: TrafficCongestionSource;
+} {
+    if (candidates.length < 3) {
+        return {
+            status: 'unavailable',
+            source: 'none',
+        };
+    }
+
+    const gaps = candidates
+        .slice(1)
+        .map((candidate, index) => Math.max(0, candidate.etaMinutes - candidates[index].etaMinutes));
+
+    if (gaps.length === 0) {
+        return {
+            status: 'unavailable',
+            source: 'none',
+        };
+    }
+
+    const averageGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+    const tightGapRatio = gaps.filter((gap) => gap <= 2).length / gaps.length;
+    let level: TrafficCongestionLevel = 'low';
+
+    if (averageGap <= 2.5 || tightGapRatio >= 0.6) {
+        level = 'high';
+    } else if (averageGap <= 5 || tightGapRatio >= 0.3) {
+        level = 'medium';
+    }
+
+    return {
+        status: 'inferred',
+        level,
+        source: 'eta_spacing',
     };
 }
 
@@ -612,6 +787,22 @@ export function buildRouteMonitoringPlan(
             const identification = item
                 ? assessIdentificationPriority(item, candidate.routeDistanceKm, candidate.lateralOffsetMeters, candidate.etaMinutes)
                 : { score: 0, grade: 'low' as const, reason: '흐름 감시 우선' };
+            const routeDeviationRisk = assessRouteDeviationRisk(
+                candidate.lateralOffsetMeters,
+                item?.visionCalibration,
+            );
+            const laneDirection = assessLaneDirection(resolvedDirection, item?.visionCalibration);
+            const trafficCongestion = {
+                status: 'unavailable' as const,
+                level: undefined,
+                source: 'none' as const,
+            };
+            const delayRiskScore = assessDelayRiskScore(
+                candidate.routeDistanceKm,
+                candidate.etaMinutes,
+                routeDeviationRisk,
+                item?.visionCalibration,
+            );
             const focusScore = alignmentScore * 140 + rangeScore * 80 + directionScore * 100 + identification.score * 2;
 
             return {
@@ -629,6 +820,15 @@ export function buildRouteMonitoringPlan(
                 identificationScore: identification.score,
                 identificationGrade: identification.grade,
                 identificationReason: identification.reason,
+                laneDirectionStatus: laneDirection.status,
+                laneDirectionLabel: laneDirection.label,
+                laneDirectionSource: laneDirection.source,
+                delayRiskScore,
+                routeDeviationRisk,
+                trafficCongestionStatus: trafficCongestion.status,
+                trafficCongestionLevel: trafficCongestion.level,
+                trafficCongestionSource: trafficCongestion.source,
+                visionCalibration: item?.visionCalibration,
                 etaMinutes: candidate.etaMinutes,
                 timeWindowLabel: getEtaWindowLabel(candidate.etaMinutes),
             } satisfies RouteMonitoringCandidate;
@@ -647,8 +847,16 @@ export function buildRouteMonitoringPlan(
             travelOrder: index + 1,
         }));
 
-    const focused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 500);
-    const fallbackFocused = candidates.filter((candidate) => candidate.lateralOffsetMeters <= 700);
+    const trafficCongestion = assessEtaSpacingTrafficCongestion(candidates);
+    const candidatesWithCongestion = candidates.map((candidate) => ({
+        ...candidate,
+        trafficCongestionStatus: trafficCongestion.status,
+        trafficCongestionLevel: trafficCongestion.level,
+        trafficCongestionSource: trafficCongestion.source,
+    }));
+
+    const focused = candidatesWithCongestion.filter((candidate) => candidate.lateralOffsetMeters <= 500);
+    const fallbackFocused = candidatesWithCongestion.filter((candidate) => candidate.lateralOffsetMeters <= 700);
     const prioritizedFocus = [...(focused.length > 0 ? focused : fallbackFocused)]
         .sort((left, right) =>
             right.focusScore - left.focusScore
@@ -659,21 +867,21 @@ export function buildRouteMonitoringPlan(
         .slice(0, 8)
         .sort((left, right) => left.travelOrder - right.travelOrder);
     const focusIds = prioritizedFocus.map((candidate) => candidate.id);
-    const immediateIds = candidates
+    const immediateIds = candidatesWithCongestion
         .filter((candidate) => candidate.timeWindowLabel === '즉시')
         .map((candidate) => candidate.id);
-    const shortIds = candidates
+    const shortIds = candidatesWithCongestion
         .filter((candidate) => candidate.timeWindowLabel === '단기')
         .map((candidate) => candidate.id);
-    const mediumIds = candidates
+    const mediumIds = candidatesWithCongestion
         .filter((candidate) => candidate.timeWindowLabel === '중기')
         .map((candidate) => candidate.id);
-    const followupIds = candidates
+    const followupIds = candidatesWithCongestion
         .filter((candidate) => candidate.timeWindowLabel === '후속')
         .map((candidate) => candidate.id);
-    const highIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'high').length;
-    const mediumIdentificationCount = candidates.filter((candidate) => candidate.identificationGrade === 'medium').length;
-    const prioritizedIds = [startItem.id, ...candidates.map((candidate) => candidate.id)]
+    const highIdentificationCount = candidatesWithCongestion.filter((candidate) => candidate.identificationGrade === 'high').length;
+    const mediumIdentificationCount = candidatesWithCongestion.filter((candidate) => candidate.identificationGrade === 'medium').length;
+    const prioritizedIds = [startItem.id, ...candidatesWithCongestion.map((candidate) => candidate.id)]
         .filter((id, index, array) => array.indexOf(id) === index);
 
     return {
@@ -690,7 +898,7 @@ export function buildRouteMonitoringPlan(
         destinationMatched: Boolean(destinationItem) || !destinationQuery,
         destinationSuggestions,
         bundleCount: routeItems.length + 1,
-        segmentCount: candidates.length + 1,
+        segmentCount: candidatesWithCongestion.length + 1,
         focusCount: prioritizedFocus.length,
         highIdentificationCount,
         mediumIdentificationCount,
@@ -698,7 +906,7 @@ export function buildRouteMonitoringPlan(
         resolvedDirection,
         directionSource,
         speedKph: normalizedSpeedKph,
-        candidates: candidates.slice(0, 12),
+        candidates: candidatesWithCongestion.slice(0, 12),
         prioritizedIds,
         focusIds,
         immediateIds,
@@ -767,6 +975,15 @@ export function buildRouteScopedTrackScope(
             identificationScore: candidate?.identificationScore,
             identificationGrade: candidate?.identificationGrade,
             identificationReason: candidate?.identificationReason,
+            laneDirectionStatus: candidate?.laneDirectionStatus,
+            laneDirectionLabel: candidate?.laneDirectionLabel,
+            laneDirectionSource: candidate?.laneDirectionSource,
+            delayRiskScore: candidate?.delayRiskScore,
+            routeDeviationRisk: candidate?.routeDeviationRisk,
+            trafficCongestionStatus: candidate?.trafficCongestionStatus,
+            trafficCongestionLevel: candidate?.trafficCongestionLevel,
+            trafficCongestionSource: candidate?.trafficCongestionSource,
+            visionCalibration: candidate?.visionCalibration,
         };
     });
 }

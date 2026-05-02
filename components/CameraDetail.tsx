@@ -49,7 +49,11 @@ interface Props {
             identificationReason: string;
             etaMinutes: number;
             timeWindowLabel: string;
+            delayRiskScore?: number;
+            routeDeviationRisk?: 'unknown' | 'low' | 'medium' | 'high';
         }>;
+        delayRiskScore?: number;
+        routeDeviationRisk?: 'unknown' | 'low' | 'medium' | 'high';
     } | null;
     onSelectRecommended?: (id: string) => void;
     onClose: () => void;
@@ -626,6 +630,9 @@ export default function CameraDetail({
                             <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineHeight: 1.5 }}>
                                 {routeMonitoring.originLabel}{routeMonitoring.destinationLabel ? ` → ${routeMonitoring.destinationLabel}` : ''} / {routeMonitoring.roadLabel} 기준 {routeMonitoring.directionLabel} / {routeMonitoring.directionSourceLabel} / {routeMonitoring.scopeLabel}. 즉시 {routeMonitoring.immediateCount}대, 단기 {routeMonitoring.shortCount}대, 중기 {routeMonitoring.mediumCount}대를 먼저 보고, 구간 {routeMonitoring.segmentCount}대 중 우선 추적 {routeMonitoring.focusCount}대를 상단에 두며, 전체 도로축은 {routeMonitoring.bundleCount}대입니다.
                                 번호판/색상 식별 우선 {routeMonitoring.highIdentificationCount}대, 차종/색상 확인 우선 {routeMonitoring.mediumIdentificationCount}대를 먼저 추천합니다.
+                                {routeMonitoring.delayRiskScore !== undefined || routeMonitoring.routeDeviationRisk
+                                    ? ` 지연 위험 ${routeMonitoring.delayRiskScore ?? 0}/100 · 경로 이탈 ${routeMonitoring.routeDeviationRisk ?? 'unknown'}`
+                                    : ''}
                             </div>
                         </div>
                         {routeMonitoring.candidates.map((candidate) => (

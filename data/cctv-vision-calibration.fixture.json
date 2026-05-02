@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "cctv_vision_calibration_v1",
+  "policy": {
+    "noInferenceWithoutEvidence": true,
+    "defaultStatus": "fixture_only"
+  },
+  "entries": [
+    {
+      "status": "active",
+      "taxonomy": "cctv_vision_calibration_v1",
+      "cctvId": "fixture-tier-a-001",
+      "cctvName": "fixture intersection camera",
+      "region": "김포",
+      "visionTier": "tier_a",
+      "identificationUse": "fine_grained_vehicle",
+      "approachDistanceMeters": 18,
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "directionCalibrationStatus": "calibrated",
+      "lineZones": {
+        "forward": {
+          "label": "forward",
+          "points": [[240, 720], [1680, 720]]
+        },
+        "reverse": {
+          "label": "reverse",
+          "points": [[240, 840], [1680, 840]]
+        }
+      },
+      "evidence": {
+        "source": "fixture-only",
+        "verificationMethod": "unit test fixture",
+        "sampleCount": 3,
+        "datasetPath": "fixtures/cctv-vision",
+        "reviewer": "fixture",
+        "reviewedAt": "2026-04-27"
+      }
+    }
+  ]
+}

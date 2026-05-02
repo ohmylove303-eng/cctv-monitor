@@ -23,6 +23,43 @@ class OcrDiagnostics(BaseModel):
     top_candidate_reason: str | None = None
 
 
+class VehicleSignature(BaseModel):
+    detector: Literal["yolo"] = "yolo"
+    taxonomy: Literal["coco_vehicle"] = "coco_vehicle"
+    detected_labels: list[str] = Field(default_factory=list)
+    generic_vehicle_type: str | None = None
+    make: str | None = None
+    model: str | None = None
+    subtype: str | None = None
+    verification_status: Literal["detector_only", "target_hint_only", "needs_reference_data"] = "needs_reference_data"
+    reference_catalog_status: Literal["missing", "empty", "loaded"] = "missing"
+    vmmr_readiness_status: Literal["missing", "empty", "no_active_model", "active_report_ready"] = "missing"
+    vmmr_active_model_count: int = 0
+    fine_grained_model_ready: bool = False
+    reid_readiness_status: Literal["missing", "empty", "no_active_model", "active_report_ready"] = "missing"
+    reid_active_model_count: int = 0
+    same_vehicle_reid_ready: bool = False
+    reid_runtime_status: Literal[
+        "disabled",
+        "readiness_not_active",
+        "model_not_configured",
+        "model_file_missing",
+        "model_dimension_mismatch",
+        "runtime_ready",
+    ] = "disabled"
+    reid_match_status: Literal["disabled", "no_crop", "no_embedding", "unmatched", "matched"] = "disabled"
+    reid_match_score: float | None = None
+    reid_match_threshold: float | None = None
+    reid_match_gallery_entries: int | None = None
+    reid_match_reference_id: str | None = None
+    reid_match_reference_cctv_id: str | None = None
+    reid_match_reference_timestamp: str | None = None
+    reid_embedding_backend: str | None = None
+    reid_embedding_dimension: int | None = None
+    reid_stored_entry_id: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+
+
 class AnalyzeRequest(BaseModel):
     cctv_id: str = Field(..., min_length=1)
     hls_url: HttpUrl
@@ -62,6 +99,7 @@ class AnalyzeResponse(BaseModel):
     target_color: str | None = None
     target_vehicle_type: str | None = None
     plate_candidates: list[str] = Field(default_factory=list)
+    vehicle_signature: VehicleSignature | None = None
 
 
 class TrackCamera(BaseModel):
@@ -77,6 +115,17 @@ class TrackCamera(BaseModel):
     timeWindowLabel: str | None = None
     travelOrder: int | None = None
     isRouteFocus: bool | None = None
+    identificationScore: int | float | None = None
+    identificationGrade: Literal["high", "medium", "low"] | None = None
+    identificationReason: str | None = None
+    laneDirectionStatus: Literal["unknown", "calibrated"] | None = None
+    laneDirectionLabel: Literal["forward", "reverse"] | None = None
+    laneDirectionSource: Literal["vision_line_zone", "not_calibrated"] | None = None
+    delayRiskScore: float | None = None
+    routeDeviationRisk: Literal["unknown", "low", "medium", "high"] | None = None
+    trafficCongestionStatus: Literal["unavailable", "inferred", "verified"] | None = None
+    trafficCongestionLevel: Literal["low", "medium", "high"] | None = None
+    trafficCongestionSource: Literal["none", "eta_spacing", "external_traffic_api"] | None = None
 
 
 class TrackRequest(BaseModel):
@@ -105,6 +154,18 @@ class TrackHit(BaseModel):
     travel_assessment_label: str | None = None
     travel_order: int | None = None
     is_route_focus: bool | None = None
+    identification_score: int | float | None = None
+    identification_grade: Literal["high", "medium", "low"] | None = None
+    identification_reason: str | None = None
+    lane_direction_status: Literal["unknown", "calibrated"] | None = None
+    lane_direction_label: Literal["forward", "reverse"] | None = None
+    lane_direction_source: Literal["vision_line_zone", "not_calibrated"] | None = None
+    delay_risk_score: float | None = None
+    route_deviation_risk: Literal["unknown", "low", "medium", "high"] | None = None
+    traffic_congestion_status: Literal["unavailable", "inferred", "verified"] | None = None
+    traffic_congestion_level: Literal["low", "medium", "high"] | None = None
+    traffic_congestion_source: Literal["none", "eta_spacing", "external_traffic_api"] | None = None
+    vehicle_signature: VehicleSignature | None = None
 
 
 class TrackResponse(BaseModel):

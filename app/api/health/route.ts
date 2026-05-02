@@ -6,6 +6,11 @@ import {
     getOfficialCoordinateInputSummary,
     loadOfficialCoordinateOverrides,
 } from '@/lib/official-coordinates';
+import {
+    getCctvVisionCalibrationFileStats,
+    getCctvVisionCalibrationInputSummary,
+    loadCctvVisionCalibrations,
+} from '@/lib/cctv-vision-calibration';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -83,17 +88,31 @@ export async function GET(request: Request) {
     const coordinateFilesPromise = getOfficialCoordinateFileStats();
     const coordinateOverridesPromise = loadOfficialCoordinateOverrides();
     const coordinateInputSummaryPromise = getOfficialCoordinateInputSummary();
+    const visionCalibrationFilesPromise = getCctvVisionCalibrationFileStats();
+    const visionCalibrationsPromise = loadCctvVisionCalibrations();
+    const visionCalibrationInputSummaryPromise = getCctvVisionCalibrationInputSummary();
 
     const [cctvCheck, sentinelCheck, tleCheck] = await Promise.all([
         fetchJson(`${baseUrl}/api/cctv`),
         fetchJson(`${baseUrl}/api/satellite/sentinel?date=${encodeURIComponent(date)}`),
         fetchJson(`${baseUrl}/api/tle`),
     ]);
-    const [forensicProbe, coordinateFiles, coordinateOverrides, coordinateInputSummary] = await Promise.all([
+    const [
+        forensicProbe,
+        coordinateFiles,
+        coordinateOverrides,
+        coordinateInputSummary,
+        visionCalibrationFiles,
+        visionCalibrations,
+        visionCalibrationInputSummary,
+    ] = await Promise.all([
         forensicProbePromise,
         coordinateFilesPromise,
         coordinateOverridesPromise,
         coordinateInputSummaryPromise,
+        visionCalibrationFilesPromise,
+        visionCalibrationsPromise,
+        visionCalibrationInputSummaryPromise,
     ]);
 
     const cctvItems = Array.isArray(cctvCheck.payload) ? cctvCheck.payload : [];
@@ -165,6 +184,11 @@ export async function GET(request: Request) {
                     .map((file) => ({ type: file.type, path: file.path })),
                 officialOverrideCount: coordinateOverrides.length,
                 coordinateInputSummary,
+                visionCalibrationFiles: visionCalibrationFiles
+                    .filter((file) => file.exists)
+                    .map((file) => ({ type: file.type, path: file.path })),
+                visionCalibrationCount: visionCalibrations.length,
+                visionCalibrationInputSummary,
                 error: cctvCheck.error ?? null,
             },
             sentinel: {
@@ -198,6 +222,13 @@ export async function GET(request: Request) {
                 httpStatus: forensicProbe.httpStatus,
                 mode: forensicProbe.mode,
                 ocr: forensicProbe.ocr,
+                vehicleReference: forensicProbe.vehicleReference ?? null,
+                vehicleVmmrReadiness: forensicProbe.vehicleVmmrReadiness ?? null,
+                vehicleReidReadiness: forensicProbe.vehicleReidReadiness ?? null,
+                vehicleReidRuntime: forensicProbe.vehicleReidRuntime ?? null,
+                vehicleReidRuntimeBacktest: forensicProbe.vehicleReidRuntimeBacktest ?? null,
+                trackingStore: forensicProbe.trackingStore ?? null,
+                executionHarness: forensicProbe.executionHarness ?? null,
                 message: forensicProbe.message,
             },
         },

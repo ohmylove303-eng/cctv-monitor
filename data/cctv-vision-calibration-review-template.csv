@@ -1,0 +1,2 @@
+reviewStatus,cctvId,cctvName,region,visionTier,identificationUse,approachDistanceMeters,resolutionWidth,resolutionHeight,directionCalibrationStatus,lineZoneForward,lineZoneReverse,evidenceSource,verificationMethod,sampleCount,datasetPath,reviewer,reviewedAt,notes
+review_needed,,,,,,,,,,,,,,,,,,

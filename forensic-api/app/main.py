@@ -6,9 +6,15 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from .analyzer import analyze_stream, build_track_result, get_ocr_runtime_state
+from .execution_harness import get_execution_harness_status
 from .models import AnalyzeRequest, AnalyzeResponse, TrackRequest, TrackResponse
 from .settings import get_settings
-from .store import get_tracking_result, save_tracking_result
+from .store import get_tracking_result, get_tracking_store_status, save_tracking_result
+from .vehicle_reference import get_vehicle_reference_status
+from .vehicle_reid_runtime import get_vehicle_reid_runtime_status
+from .vehicle_reid_runtime_backtest import get_vehicle_reid_runtime_backtest_status
+from .vehicle_reid_readiness import get_vehicle_reid_readiness_status
+from .vehicle_vmmr_readiness import get_vehicle_vmmr_readiness_status
 
 app = FastAPI(title="ITS Forensic API", version="0.1.0")
 
@@ -20,6 +26,13 @@ def root():
         "service": "its-forensic-api",
         "status": "ok",
         "mode": "demo" if settings.forensic_demo_mode else "yolo",
+        "vehicle_reference": get_vehicle_reference_status(),
+        "vehicle_vmmr_readiness": get_vehicle_vmmr_readiness_status(),
+        "vehicle_reid_readiness": get_vehicle_reid_readiness_status(),
+        "vehicle_reid_runtime": get_vehicle_reid_runtime_status(),
+        "vehicle_reid_runtime_backtest": get_vehicle_reid_runtime_backtest_status(),
+        "tracking_store": get_tracking_store_status(),
+        "execution_harness": get_execution_harness_status(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -31,6 +44,13 @@ def healthz():
         "status": "ok",
         "mode": "demo" if settings.forensic_demo_mode else "yolo",
         "ocr": get_ocr_runtime_state(),
+        "vehicle_reference": get_vehicle_reference_status(),
+        "vehicle_vmmr_readiness": get_vehicle_vmmr_readiness_status(),
+        "vehicle_reid_readiness": get_vehicle_reid_readiness_status(),
+        "vehicle_reid_runtime": get_vehicle_reid_runtime_status(),
+        "vehicle_reid_runtime_backtest": get_vehicle_reid_runtime_backtest_status(),
+        "tracking_store": get_tracking_store_status(),
+        "execution_harness": get_execution_harness_status(),
     }
 
 

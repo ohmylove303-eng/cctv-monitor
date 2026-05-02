@@ -22,6 +22,111 @@ type ForensicOcrProbe = {
     lazy_load?: boolean;
     status?: string;
     error?: string | null;
+    operational_scope?: string | null;
+    verification_status?: string | null;
+    validation_note?: string | null;
+    backtest_status?: string | null;
+    backtest_active_report_count?: number;
+    backtest_required_buckets?: string[] | null;
+    backtest_completed_buckets?: string[] | null;
+    backtest_runtime_integrated?: boolean;
+    backtest_verification_status?: string | null;
+    backtest_validation_note?: string | null;
+};
+
+type ForensicVehicleReferenceProbe = {
+    status?: string;
+    path?: string;
+    entries?: number;
+    error?: string | null;
+};
+
+type ForensicVehicleVmmrReadinessProbe = {
+    status?: string;
+    path?: string;
+    datasets?: number;
+    model_reports?: number;
+    active_models?: number;
+    activation_threshold?: number;
+    fine_grained_model_ready?: boolean;
+    error?: string | null;
+};
+
+type ForensicVehicleReidReadinessProbe = {
+    status?: string;
+    path?: string;
+    datasets?: number;
+    model_reports?: number;
+    active_models?: number;
+    activation_threshold?: number;
+    max_false_positive_rate?: number;
+    same_vehicle_reid_ready?: boolean;
+    runtime_integrated?: boolean;
+    error?: string | null;
+};
+
+type ForensicVehicleReidRuntimeProbe = {
+    taxonomy?: string;
+    backend?: string;
+    status?: string;
+    enabled?: boolean;
+    configured?: boolean;
+    model_path?: string | null;
+    embedding_dimension?: number | null;
+    gallery_path?: string | null;
+    gallery_entries?: number;
+    match_threshold?: number | null;
+    readiness_status?: string | null;
+    readiness_active_models?: number;
+    runtime_integrated?: boolean;
+    validation_note?: string | null;
+    error?: string | null;
+};
+
+type ForensicVehicleReidRuntimeBacktestProbe = {
+    taxonomy?: string;
+    status?: string;
+    path?: string | null;
+    configured?: boolean;
+    active_report_count?: number;
+    required_buckets?: string[] | null;
+    completed_buckets?: string[] | null;
+    runtime_integrated?: boolean;
+    verification_status?: string | null;
+    validation_note?: string | null;
+    runtime_backend?: string | null;
+    match_threshold?: number | null;
+    sample_count_total?: number;
+    reviewed_sample_count?: number;
+    missing_observation_count?: number;
+    match_success_rate?: number | null;
+    false_positive_rate?: number | null;
+    false_negative_rate?: number | null;
+    gallery_growth?: number;
+    error?: string | null;
+};
+
+type ForensicTrackingStoreProbe = {
+    backend?: string;
+    requested_backend?: string;
+    configured?: boolean;
+    dsn_configured?: boolean;
+    table?: string | null;
+    path?: string | null;
+    memory_results?: number;
+    persisted_results?: number;
+    durable?: boolean;
+    external_db?: boolean;
+    error?: string | null;
+};
+
+type ForensicExecutionHarnessProbe = {
+    taxonomy?: string;
+    status?: string;
+    current_stage?: string;
+    current_stage_model?: string;
+    current_goal?: string;
+    phases?: Array<{ stage?: string; model?: string }>;
 };
 
 function trimTrailingSlash(value: string) {
@@ -63,6 +168,13 @@ function fallbackProbe(message?: string) {
         provider: 'fallback' as const,
         mode: 'fallback',
         ocr: null,
+        vehicleReference: null,
+        vehicleVmmrReadiness: null,
+        vehicleReidReadiness: null,
+        vehicleReidRuntime: null,
+        vehicleReidRuntimeBacktest: null,
+        trackingStore: null,
+        executionHarness: null,
         message: message || '외부 ITS 차량 분석 백엔드 미응답. 내장 데모 fallback으로 계속 운용합니다.',
     };
 }
@@ -78,6 +190,13 @@ export async function probeForensicApi() {
                 provider: 'missing' as const,
                 mode: null,
                 ocr: null,
+                vehicleReference: null,
+                vehicleVmmrReadiness: null,
+                vehicleReidReadiness: null,
+                vehicleReidRuntime: null,
+                vehicleReidRuntimeBacktest: null,
+                trackingStore: null,
+                executionHarness: null,
                 message: getForensicConfigMessage(),
             };
     }
@@ -92,9 +211,40 @@ export async function probeForensicApi() {
             signal: controller.signal,
         });
 
-        const payload = await response.json().catch(() => null) as { mode?: string; ocr?: ForensicOcrProbe } | null;
+        const payload = await response.json().catch(() => null) as {
+            mode?: string;
+            ocr?: ForensicOcrProbe;
+            vehicle_reference?: ForensicVehicleReferenceProbe;
+            vehicle_vmmr_readiness?: ForensicVehicleVmmrReadinessProbe;
+            vehicle_reid_readiness?: ForensicVehicleReidReadinessProbe;
+            vehicle_reid_runtime?: ForensicVehicleReidRuntimeProbe;
+            vehicle_reid_runtime_backtest?: ForensicVehicleReidRuntimeBacktestProbe;
+            tracking_store?: ForensicTrackingStoreProbe;
+            execution_harness?: ForensicExecutionHarnessProbe;
+        } | null;
         const modeLabel = typeof payload?.mode === 'string' ? payload.mode : null;
         const ocr = payload?.ocr && typeof payload.ocr === 'object' ? payload.ocr : null;
+        const vehicleReference = payload?.vehicle_reference && typeof payload.vehicle_reference === 'object'
+            ? payload.vehicle_reference
+            : null;
+        const vehicleVmmrReadiness = payload?.vehicle_vmmr_readiness && typeof payload.vehicle_vmmr_readiness === 'object'
+            ? payload.vehicle_vmmr_readiness
+            : null;
+        const vehicleReidReadiness = payload?.vehicle_reid_readiness && typeof payload.vehicle_reid_readiness === 'object'
+            ? payload.vehicle_reid_readiness
+            : null;
+        const vehicleReidRuntime = payload?.vehicle_reid_runtime && typeof payload.vehicle_reid_runtime === 'object'
+            ? payload.vehicle_reid_runtime
+            : null;
+        const vehicleReidRuntimeBacktest = payload?.vehicle_reid_runtime_backtest && typeof payload.vehicle_reid_runtime_backtest === 'object'
+            ? payload.vehicle_reid_runtime_backtest
+            : null;
+        const trackingStore = payload?.tracking_store && typeof payload.tracking_store === 'object'
+            ? payload.tracking_store
+            : null;
+        const executionHarness = payload?.execution_harness && typeof payload.execution_harness === 'object'
+            ? payload.execution_harness
+            : null;
 
         return {
             enabled: true,
@@ -103,6 +253,13 @@ export async function probeForensicApi() {
             provider: 'configured' as const,
             mode: modeLabel,
             ocr,
+            vehicleReference,
+            vehicleVmmrReadiness,
+            vehicleReidReadiness,
+            vehicleReidRuntime,
+            vehicleReidRuntimeBacktest,
+            trackingStore,
+            executionHarness,
             message: response.ok
                 ? `ITS 차량 분석 백엔드 응답 확인됨${modeLabel ? ` (${modeLabel})` : ''}`
                 : `ITS 차량 분석 백엔드 연결됨 (HTTP ${response.status})`,
@@ -117,6 +274,13 @@ export async function probeForensicApi() {
                 provider: 'configured' as const,
                 mode: null,
                 ocr: null,
+                vehicleReference: null,
+                vehicleVmmrReadiness: null,
+                vehicleReidReadiness: null,
+                vehicleReidRuntime: null,
+                vehicleReidRuntimeBacktest: null,
+                trackingStore: null,
+                executionHarness: null,
                 message: 'ITS 차량 분석 백엔드가 기동 중이거나 Render free warmup 중입니다. 실제 분석 요청은 계속 외부 백엔드를 우선 사용합니다.',
             };
         }
@@ -133,6 +297,13 @@ export async function probeForensicApi() {
                 provider: 'configured' as const,
                 mode: null,
                 ocr: null,
+                vehicleReference: null,
+                vehicleVmmrReadiness: null,
+                vehicleReidReadiness: null,
+                vehicleReidRuntime: null,
+                vehicleReidRuntimeBacktest: null,
+                trackingStore: null,
+                executionHarness: null,
                 message: error instanceof Error
                     ? `ITS 차량 분석 백엔드 미응답: ${error.message}`
                     : 'ITS 차량 분석 백엔드 미응답',

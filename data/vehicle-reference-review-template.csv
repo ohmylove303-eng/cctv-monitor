@@ -1,0 +1,2 @@
+reviewStatus,id,genericVehicleType,make,model,subtype,market,evidenceSource,verificationMethod,sampleCount,datasetPath,reviewer,reviewedAt,notes
+review_needed,,,,,,,,,,,,,

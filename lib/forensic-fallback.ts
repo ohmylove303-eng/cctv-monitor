@@ -22,6 +22,14 @@ type TrackCameraPayload = {
     timeWindowLabel?: string;
     travelOrder?: number;
     isRouteFocus?: boolean;
+    laneDirectionStatus?: 'unknown' | 'calibrated';
+    laneDirectionLabel?: 'forward' | 'reverse';
+    laneDirectionSource?: 'vision_line_zone' | 'not_calibrated';
+    delayRiskScore?: number;
+    routeDeviationRisk?: 'unknown' | 'low' | 'medium' | 'high';
+    trafficCongestionStatus?: 'unavailable' | 'inferred' | 'verified';
+    trafficCongestionLevel?: 'low' | 'medium' | 'high';
+    trafficCongestionSource?: 'none' | 'eta_spacing' | 'external_traffic_api';
 };
 
 type RouteContextPayload = {
@@ -165,6 +173,14 @@ export function createFallbackTrackResponse(payload: TrackRequestPayload) {
             time_window_label: camera.timeWindowLabel ?? null,
             travel_order: camera.travelOrder ?? null,
             is_route_focus: camera.isRouteFocus ?? null,
+            lane_direction_status: camera.laneDirectionStatus ?? null,
+            lane_direction_label: camera.laneDirectionLabel ?? null,
+            lane_direction_source: camera.laneDirectionSource ?? null,
+            delay_risk_score: camera.delayRiskScore ?? null,
+            route_deviation_risk: camera.routeDeviationRisk ?? 'unknown',
+            traffic_congestion_status: camera.trafficCongestionStatus ?? 'unavailable',
+            traffic_congestion_level: camera.trafficCongestionLevel ?? null,
+            traffic_congestion_source: camera.trafficCongestionSource ?? 'none',
         }));
     const originHit = payload.origin_cctv_id
         ? hits.find((hit) => hit.cctv_id === payload.origin_cctv_id) ?? null

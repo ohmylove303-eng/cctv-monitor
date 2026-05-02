@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_vmmr_readiness_v1",
+  "policy": {
+    "noMakeModelWithoutValidatedModel": true,
+    "activationMetric": "mAP50",
+    "activationThreshold": 0.85,
+    "notes": "fixture_only"
+  },
+  "datasets": [
+    {
+      "id": "fixture-dataset-001",
+      "fixture": true,
+      "sourceName": "fixture-only",
+      "sourceType": "manual_fixture",
+      "licenseStatus": "approved",
+      "reviewStatus": "approved",
+      "sampleCount": 90,
+      "evidence": {
+        "datasetPath": "/fixture/vehicle-vmmr",
+        "reviewer": "fixture-auditor",
+        "reviewedAt": "2026-04-29"
+      }
+    }
+  ],
+  "modelReports": [
+    {
+      "id": "fixture-vmmr-model-001",
+      "fixture": true,
+      "status": "active",
+      "modelFamily": "fixture-yolo",
+      "weightsPath": "/fixture/runs/vehicle-vmmr/best.pt",
+      "datasetIds": ["fixture-dataset-001"],
+      "metrics": {
+        "overallMap50": 0.91,
+        "map50_95": 0.72,
+        "precision": 0.9,
+        "recall": 0.88
+      },
+      "classes": [
+        {
+          "name": "sedan",
+          "role": "body_type",
+          "map50": 0.89,
+          "testSamples": 30
+        },
+        {
+          "name": "suv_domestic",
+          "role": "body_type",
+          "map50": 0.87,
+          "testSamples": 30
+        }
+      ],
+      "evidence": {
+        "reportPath": "/fixture/reports/backtest.json",
+        "reviewer": "fixture-auditor",
+        "reviewedAt": "2026-04-29"
+      }
+    }
+  ]
+}

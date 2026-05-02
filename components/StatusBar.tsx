@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
 import { CctvItem } from '@/types/cctv';
 
 interface Props { allItems: CctvItem[]; }
@@ -70,6 +72,25 @@ export default function StatusBar({ allItems }: Props) {
                 ].map(b => (
                     <span key={b.label} className={`badge ${b.cls}`}>{b.label}</span>
                 ))}
+                <Link
+                    href="/actual-validation"
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(64,196,255,0.22)',
+                        background: 'rgba(64,196,255,0.08)',
+                        color: 'var(--neon-blue)',
+                        textDecoration: 'none',
+                    }}
+                >
+                    <ExternalLink size={12} />
+                    실제 검증
+                </Link>
             </div>
 
             {/* 시계 */}

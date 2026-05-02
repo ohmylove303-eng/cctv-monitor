@@ -5,6 +5,45 @@ export type CctvRegion = '김포' | '인천' | '서울';
 export type RoadPreset = 'all' | 'route48' | 'ring1' | 'airport' | 'secondGyeongin' | 'incheonBridge' | 'outer2';
 export type RouteDirection = 'auto' | 'forward' | 'reverse';
 export type RouteScopeMode = 'focus' | 'bundle' | 'network';
+export type CctvVisionTier = 'tier_a' | 'tier_b' | 'tier_c';
+export type CctvDirectionCalibrationStatus = 'none' | 'pending' | 'calibrated';
+export type LaneDirectionStatus = 'unknown' | 'calibrated';
+export type LaneDirectionSource = 'vision_line_zone' | 'not_calibrated';
+export type RouteDeviationRisk = 'unknown' | 'low' | 'medium' | 'high';
+export type TrafficCongestionStatus = 'unavailable' | 'inferred' | 'verified';
+export type TrafficCongestionLevel = 'low' | 'medium' | 'high';
+export type TrafficCongestionSource = 'none' | 'eta_spacing' | 'external_traffic_api';
+
+export interface CctvLineZone {
+    label: 'forward' | 'reverse';
+    points: [[number, number], [number, number]];
+}
+
+export interface CctvVisionCalibration {
+    taxonomy: 'cctv_vision_calibration_v1';
+    status: 'active';
+    visionTier: CctvVisionTier;
+    identificationUse: 'fine_grained_vehicle' | 'vehicle_shape_direction' | 'traffic_flow_only';
+    approachDistanceMeters: number;
+    resolution: {
+        width: number;
+        height: number;
+    };
+    directionCalibrationStatus: CctvDirectionCalibrationStatus;
+    lineZones?: {
+        forward?: CctvLineZone;
+        reverse?: CctvLineZone;
+    };
+    evidence: {
+        source: string;
+        verificationMethod: string;
+        sampleCount: number;
+        datasetPath: string;
+        reviewer: string;
+        reviewedAt: string;
+        notes?: string;
+    };
+}
 
 export interface CctvItem {
     id: string;
@@ -25,6 +64,7 @@ export interface CctvItem {
     coordinateSource?: 'official' | 'its_api' | 'seed' | 'unknown';
     coordinateVerified?: boolean;
     coordinateNote?: string;
+    visionCalibration?: CctvVisionCalibration;
 }
 
 export interface ForensicTrackCamera {
@@ -43,6 +83,15 @@ export interface ForensicTrackCamera {
     identificationScore?: number;
     identificationGrade?: 'high' | 'medium' | 'low';
     identificationReason?: string;
+    laneDirectionStatus?: LaneDirectionStatus;
+    laneDirectionLabel?: 'forward' | 'reverse';
+    laneDirectionSource?: LaneDirectionSource;
+    delayRiskScore?: number;
+    routeDeviationRisk?: RouteDeviationRisk;
+    trafficCongestionStatus?: TrafficCongestionStatus;
+    trafficCongestionLevel?: TrafficCongestionLevel;
+    trafficCongestionSource?: TrafficCongestionSource;
+    visionCalibration?: CctvVisionCalibration;
 }
 
 export interface ForensicRouteContext {
@@ -89,6 +138,36 @@ export interface ForensicQualityReport {
     threshold: number;
 }
 
+export interface ForensicVehicleSignature {
+    detector: 'yolo';
+    taxonomy: 'coco_vehicle';
+    detected_labels: string[];
+    generic_vehicle_type?: string | null;
+    make?: string | null;
+    model?: string | null;
+    subtype?: string | null;
+    verification_status: 'detector_only' | 'target_hint_only' | 'needs_reference_data';
+    reference_catalog_status?: 'missing' | 'empty' | 'loaded';
+    vmmr_readiness_status?: 'missing' | 'empty' | 'no_active_model' | 'active_report_ready';
+    vmmr_active_model_count?: number;
+    fine_grained_model_ready?: boolean;
+    reid_readiness_status?: 'missing' | 'empty' | 'no_active_model' | 'active_report_ready';
+    reid_active_model_count?: number;
+    same_vehicle_reid_ready?: boolean;
+    reid_runtime_status?: 'disabled' | 'readiness_not_active' | 'model_not_configured' | 'model_file_missing' | 'model_dimension_mismatch' | 'runtime_ready';
+    reid_match_status?: 'disabled' | 'no_crop' | 'no_embedding' | 'unmatched' | 'matched';
+    reid_match_score?: number | null;
+    reid_match_threshold?: number | null;
+    reid_match_gallery_entries?: number | null;
+    reid_match_reference_id?: string | null;
+    reid_match_reference_cctv_id?: string | null;
+    reid_match_reference_timestamp?: string | null;
+    reid_embedding_backend?: string | null;
+    reid_embedding_dimension?: number | null;
+    reid_stored_entry_id?: string | null;
+    evidence: string[];
+}
+
 export interface ForensicOcrDiagnostics {
     frame_batches: number;
     observation_count: number;
@@ -130,6 +209,7 @@ export interface ForensicResult {
     target_color?: string;
     target_vehicle_type?: string;
     plate_candidates?: string[];
+    vehicle_signature?: ForensicVehicleSignature | null;
 }
 
 export interface ForensicTrackingHit {
@@ -153,6 +233,17 @@ export interface ForensicTrackingHit {
     ocr_status?: ForensicResult['ocr_status'];
     ocr_engine?: string | null;
     ocr_diagnostics?: ForensicOcrDiagnostics | null;
+    lane_direction_status?: LaneDirectionStatus;
+    lane_direction_label?: 'forward' | 'reverse';
+    lane_direction_source?: LaneDirectionSource;
+    delay_risk_score?: number;
+    route_deviation_risk?: RouteDeviationRisk;
+    traffic_congestion_status?: TrafficCongestionStatus;
+    traffic_congestion_level?: TrafficCongestionLevel;
+    traffic_congestion_source?: TrafficCongestionSource;
+    vehicle_signature?: ForensicVehicleSignature | null;
+    delayRiskScore?: number;
+    routeDeviationRisk?: RouteDeviationRisk;
 }
 
 export interface ForensicTrackingResult {
@@ -174,6 +265,124 @@ export interface ForensicOcrRuntimeState {
     lazy_load?: boolean;
     status?: string | null;
     error?: string | null;
+    operational_scope?: string | null;
+    verification_status?: string | null;
+    validation_note?: string | null;
+    backtest_status?: string | null;
+    backtest_active_report_count?: number;
+    backtest_required_buckets?: string[] | null;
+    backtest_completed_buckets?: string[] | null;
+    backtest_runtime_integrated?: boolean;
+    backtest_verification_status?: string | null;
+    backtest_validation_note?: string | null;
+    backtest_engine_comparison_count?: number;
+    backtest_engine_comparisons?: Array<{
+        engine: string;
+        sampleCount: number;
+        exactPlateAccuracy: number;
+        candidateRecall: number;
+        falsePositiveRate: number;
+    }>;
+}
+
+export interface ForensicVehicleReferenceStatus {
+    status?: 'missing' | 'empty' | 'loaded' | string;
+    path?: string;
+    entries?: number;
+    error?: string | null;
+}
+
+export interface ForensicVehicleVmmrReadinessStatus {
+    status?: 'missing' | 'empty' | 'no_active_model' | 'active_report_ready' | string;
+    path?: string;
+    datasets?: number;
+    model_reports?: number;
+    active_models?: number;
+    activation_threshold?: number;
+    fine_grained_model_ready?: boolean;
+    error?: string | null;
+}
+
+export interface ForensicVehicleReidReadinessStatus {
+    status?: 'missing' | 'empty' | 'no_active_model' | 'active_report_ready' | string;
+    path?: string;
+    datasets?: number;
+    model_reports?: number;
+    active_models?: number;
+    activation_threshold?: number;
+    max_false_positive_rate?: number;
+    same_vehicle_reid_ready?: boolean;
+    runtime_integrated?: boolean;
+    error?: string | null;
+}
+
+export interface ForensicVehicleReidRuntimeStatus {
+    taxonomy?: 'vehicle_reid_runtime_v1' | string;
+    backend?: 'baseline' | string;
+    status?: 'disabled' | 'readiness_not_active' | 'model_not_configured' | 'model_file_missing' | 'model_dimension_mismatch' | 'runtime_ready' | string;
+    enabled?: boolean;
+    configured?: boolean;
+    model_path?: string | null;
+    embedding_dimension?: number | null;
+    gallery_path?: string | null;
+    gallery_entries?: number;
+    match_threshold?: number | null;
+    readiness_status?: string | null;
+    readiness_active_models?: number;
+    runtime_integrated?: boolean;
+    validation_note?: string | null;
+    error?: string | null;
+}
+
+export interface ForensicVehicleReidRuntimeBacktestStatus {
+    taxonomy?: 'vehicle_reid_runtime_backtest_report_v1' | string;
+    status?: 'pending_review' | 'review_needed' | 'active' | 'candidate' | 'rejected' | 'keep_hidden' | string;
+    path?: string | null;
+    configured?: boolean;
+    active_report_count?: number;
+    required_buckets?: string[] | null;
+    completed_buckets?: string[] | null;
+    runtime_integrated?: boolean;
+    verification_status?: string | null;
+    validation_note?: string | null;
+    runtime_backend?: string | null;
+    match_threshold?: number | null;
+    sample_count_total?: number;
+    reviewed_sample_count?: number;
+    missing_observation_count?: number;
+    match_success_rate?: number | null;
+    false_positive_rate?: number | null;
+    false_negative_rate?: number | null;
+    gallery_growth?: number;
+    error?: string | null;
+}
+
+export interface ForensicTrackingStoreStatus {
+    backend?: 'memory' | 'json_file' | 'postgres' | string;
+    requested_backend?: 'auto' | 'memory' | 'json_file' | 'postgres' | string;
+    configured?: boolean;
+    dsn_configured?: boolean;
+    table?: string | null;
+    path?: string | null;
+    memory_results?: number;
+    persisted_results?: number;
+    durable?: boolean;
+    external_db?: boolean;
+    error?: string | null;
+}
+
+export interface ForensicExecutionHarnessPhase {
+    stage?: string;
+    model?: string;
+}
+
+export interface ForensicExecutionHarness {
+    taxonomy?: 'execution_harness_v1' | string;
+    status?: 'active' | string;
+    current_stage?: string;
+    current_stage_model?: string;
+    current_goal?: string;
+    phases?: ForensicExecutionHarnessPhase[];
 }
 
 export interface ForensicStatusResponse {
@@ -183,5 +392,12 @@ export interface ForensicStatusResponse {
     httpStatus?: number;
     mode?: string | null;
     ocr?: ForensicOcrRuntimeState | null;
+    vehicleReference?: ForensicVehicleReferenceStatus | null;
+    vehicleVmmrReadiness?: ForensicVehicleVmmrReadinessStatus | null;
+    vehicleReidReadiness?: ForensicVehicleReidReadinessStatus | null;
+    vehicleReidRuntime?: ForensicVehicleReidRuntimeStatus | null;
+    vehicleReidRuntimeBacktest?: ForensicVehicleReidRuntimeBacktestStatus | null;
+    trackingStore?: ForensicTrackingStoreStatus | null;
+    executionHarness?: ForensicExecutionHarness | null;
     message: string;
 }

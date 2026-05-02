@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_vmmr_readiness_v1",
+  "policy": {
+    "noMakeModelWithoutValidatedModel": true,
+    "activationMetric": "mAP50",
+    "activationThreshold": 0.85,
+    "notes": "Fine-grained make/model/body-type output remains disabled until an active model report passes this gate."
+  },
+  "datasets": [],
+  "modelReports": []
+}

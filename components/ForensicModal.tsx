@@ -8,6 +8,13 @@ import type {
     ForensicResult,
     ForensicTrackCamera,
     ForensicTrackingResult,
+    ForensicExecutionHarness,
+    ForensicVehicleReidReadinessStatus,
+    ForensicVehicleReidRuntimeBacktestStatus,
+    ForensicVehicleReidRuntimeStatus,
+    ForensicVehicleReferenceStatus,
+    ForensicVehicleSignature,
+    ForensicVehicleVmmrReadinessStatus,
 } from '@/types/cctv';
 import {
     analyzeCctv,
@@ -38,12 +45,23 @@ interface Props {
         shortCount: number;
         mediumCount: number;
         scopeLabel: string;
+        trafficCongestionStatus: 'unavailable' | 'inferred' | 'verified';
+        trafficCongestionLevel?: 'low' | 'medium' | 'high';
+        trafficCongestionSource: 'none' | 'eta_spacing' | 'external_traffic_api';
+        delayRiskScore?: number;
+        routeDeviationRisk?: 'unknown' | 'low' | 'medium' | 'high';
     } | null;
     routeContext?: ForensicRouteContext | null;
     backendEnabled?: boolean;
     backendProvider?: 'configured' | 'fallback' | 'missing';
     backendMessage?: string | null;
     backendOcr?: ForensicOcrRuntimeState | null;
+    backendVehicleReference?: ForensicVehicleReferenceStatus | null;
+    backendVehicleVmmrReadiness?: ForensicVehicleVmmrReadinessStatus | null;
+    backendVehicleReidReadiness?: ForensicVehicleReidReadinessStatus | null;
+    backendVehicleReidRuntime?: ForensicVehicleReidRuntimeStatus | null;
+    backendVehicleReidRuntimeBacktest?: ForensicVehicleReidRuntimeBacktestStatus | null;
+    backendExecutionHarness?: ForensicExecutionHarness | null;
     trackingActiveCctvId?: string | null;
     onLocate?: (cctvId: string) => void;
     onTrackingResultChange?: (result: ForensicTrackingResult | null) => void;
@@ -422,6 +440,52 @@ function getOcrConfidenceTier(
     }
 
     return 'not_available' as const;
+}
+
+function getOcrOperationalScopeLabel(scope?: string | null) {
+    if (scope === 'verify_after_yolo_vehicle_detection') {
+        return '운용범위: 차량 검출 후 2차 정밀 확인에서만 OCR 수행';
+    }
+    return scope ? `운용범위: ${scope}` : null;
+}
+
+function getOcrVerificationStatusLabel(status?: string | null) {
+    if (status === 'runtime_ready_not_accuracy_certified') {
+        return '검증상태: 런타임 준비, 실전 정확도 인증 아님';
+    }
+    if (status === 'lazy_load_pending') {
+        return '검증상태: Lazy-load 대기';
+    }
+    if (status === 'runtime_unavailable') {
+        return '검증상태: 런타임 미가동';
+    }
+    if (status === 'disabled') {
+        return '검증상태: OCR 비활성';
+    }
+    return status ? `검증상태: ${status}` : null;
+}
+
+function getOcrBacktestStatusLabel(status?: string | null) {
+    if (status === 'pending_review') {
+        return '백테스트: 실전 검증 대기';
+    }
+    if (status === 'active_report_ready') {
+        return '백테스트: 검증 리포트 준비';
+    }
+    if (status === 'reviewed') {
+        return '백테스트: 리뷰 완료';
+    }
+    if (status === 'missing') {
+        return '백테스트: 상태 파일 없음';
+    }
+    return status ? `백테스트: ${status}` : null;
+}
+
+function getHarnessStageLabel(harness?: ForensicExecutionHarness | null) {
+    if (!harness?.current_stage) {
+        return '하네스: 미설정';
+    }
+    return `${harness.current_stage} / ${harness.current_stage_model ?? '미지정'}`;
 }
 
 function getOcrConfidenceTierMeta(
@@ -910,6 +974,107 @@ function buildBundleHintChips(
     return chips;
 }
 
+function parseVehicleSignature(raw: unknown): ForensicVehicleSignature | null {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const value = raw as Record<string, unknown>;
+    const verificationStatus = value.verification_status === 'detector_only'
+        || value.verification_status === 'target_hint_only'
+        || value.verification_status === 'needs_reference_data'
+        ? value.verification_status
+        : 'needs_reference_data';
+
+    return {
+        detector: 'yolo',
+        taxonomy: 'coco_vehicle',
+        detected_labels: Array.isArray(value.detected_labels) ? value.detected_labels.map(String) : [],
+        generic_vehicle_type: typeof value.generic_vehicle_type === 'string' ? value.generic_vehicle_type : null,
+        make: typeof value.make === 'string' ? value.make : null,
+        model: typeof value.model === 'string' ? value.model : null,
+        subtype: typeof value.subtype === 'string' ? value.subtype : null,
+        verification_status: verificationStatus,
+        reference_catalog_status:
+            value.reference_catalog_status === 'missing'
+            || value.reference_catalog_status === 'empty'
+            || value.reference_catalog_status === 'loaded'
+                ? value.reference_catalog_status
+                : undefined,
+        vmmr_readiness_status:
+            value.vmmr_readiness_status === 'missing'
+            || value.vmmr_readiness_status === 'empty'
+            || value.vmmr_readiness_status === 'no_active_model'
+            || value.vmmr_readiness_status === 'active_report_ready'
+                ? value.vmmr_readiness_status
+                : undefined,
+        vmmr_active_model_count: Number.isFinite(Number(value.vmmr_active_model_count))
+            ? Number(value.vmmr_active_model_count)
+            : undefined,
+        fine_grained_model_ready: typeof value.fine_grained_model_ready === 'boolean'
+            ? value.fine_grained_model_ready
+            : undefined,
+        reid_readiness_status:
+            value.reid_readiness_status === 'missing'
+            || value.reid_readiness_status === 'empty'
+            || value.reid_readiness_status === 'no_active_model'
+            || value.reid_readiness_status === 'active_report_ready'
+                ? value.reid_readiness_status
+                : undefined,
+        reid_active_model_count: Number.isFinite(Number(value.reid_active_model_count))
+            ? Number(value.reid_active_model_count)
+            : undefined,
+        same_vehicle_reid_ready: typeof value.same_vehicle_reid_ready === 'boolean'
+            ? value.same_vehicle_reid_ready
+            : undefined,
+        reid_runtime_status:
+            value.reid_runtime_status === 'disabled'
+            || value.reid_runtime_status === 'readiness_not_active'
+            || value.reid_runtime_status === 'model_not_configured'
+            || value.reid_runtime_status === 'model_file_missing'
+            || value.reid_runtime_status === 'model_dimension_mismatch'
+            || value.reid_runtime_status === 'runtime_ready'
+                ? value.reid_runtime_status
+                : undefined,
+        reid_match_status:
+            value.reid_match_status === 'disabled'
+            || value.reid_match_status === 'no_crop'
+            || value.reid_match_status === 'no_embedding'
+            || value.reid_match_status === 'unmatched'
+            || value.reid_match_status === 'matched'
+                ? value.reid_match_status
+                : undefined,
+        reid_match_score: Number.isFinite(Number(value.reid_match_score))
+            ? Number(value.reid_match_score)
+            : undefined,
+        reid_match_threshold: Number.isFinite(Number(value.reid_match_threshold))
+            ? Number(value.reid_match_threshold)
+            : undefined,
+        reid_match_gallery_entries: Number.isFinite(Number(value.reid_match_gallery_entries))
+            ? Number(value.reid_match_gallery_entries)
+            : undefined,
+        reid_match_reference_id: typeof value.reid_match_reference_id === 'string'
+            ? value.reid_match_reference_id
+            : undefined,
+        reid_match_reference_cctv_id: typeof value.reid_match_reference_cctv_id === 'string'
+            ? value.reid_match_reference_cctv_id
+            : undefined,
+        reid_match_reference_timestamp: typeof value.reid_match_reference_timestamp === 'string'
+            ? value.reid_match_reference_timestamp
+            : undefined,
+        reid_embedding_backend: typeof value.reid_embedding_backend === 'string'
+            ? value.reid_embedding_backend
+            : undefined,
+        reid_embedding_dimension: Number.isFinite(Number(value.reid_embedding_dimension))
+            ? Number(value.reid_embedding_dimension)
+            : undefined,
+        reid_stored_entry_id: typeof value.reid_stored_entry_id === 'string'
+            ? value.reid_stored_entry_id
+            : undefined,
+        evidence: Array.isArray(value.evidence) ? value.evidence.map(String) : [],
+    };
+}
+
 function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): ForensicResult {
     const qualityReport = typeof raw.quality_report === 'object' && raw.quality_report
         ? raw.quality_report as Record<string, unknown>
@@ -978,6 +1143,7 @@ function normalizeAnalysisResult(raw: Record<string, unknown>, cctv: CctvItem): 
         target_color: typeof raw.target_color === 'string' ? raw.target_color : undefined,
         target_vehicle_type: typeof raw.target_vehicle_type === 'string' ? raw.target_vehicle_type : undefined,
         plate_candidates: Array.isArray(raw.plate_candidates) ? raw.plate_candidates.map(String) : [],
+        vehicle_signature: parseVehicleSignature(raw.vehicle_signature),
     };
 }
 
@@ -1083,6 +1249,64 @@ function normalizeTrackingResult(
                 : typeof hit.isRouteFocus === 'boolean'
                     ? hit.isRouteFocus
                     : matchedCamera?.isRouteFocus,
+            lane_direction_status: hit.lane_direction_status === 'calibrated' || hit.lane_direction_status === 'unknown'
+                ? hit.lane_direction_status
+                : hit.laneDirectionStatus === 'calibrated' || hit.laneDirectionStatus === 'unknown'
+                    ? hit.laneDirectionStatus
+                    : matchedCamera?.laneDirectionStatus,
+            lane_direction_label: hit.lane_direction_label === 'forward' || hit.lane_direction_label === 'reverse'
+                ? hit.lane_direction_label
+                : hit.laneDirectionLabel === 'forward' || hit.laneDirectionLabel === 'reverse'
+                    ? hit.laneDirectionLabel
+                    : matchedCamera?.laneDirectionLabel,
+            lane_direction_source: hit.lane_direction_source === 'vision_line_zone' || hit.lane_direction_source === 'not_calibrated'
+                ? hit.lane_direction_source
+                : hit.laneDirectionSource === 'vision_line_zone' || hit.laneDirectionSource === 'not_calibrated'
+                    ? hit.laneDirectionSource
+                    : matchedCamera?.laneDirectionSource,
+            delay_risk_score: typeof hit.delay_risk_score === 'number'
+                ? hit.delay_risk_score
+                : typeof hit.delayRiskScore === 'number'
+                    ? hit.delayRiskScore
+                    : matchedCamera?.delayRiskScore,
+            route_deviation_risk: hit.route_deviation_risk === 'unknown'
+                || hit.route_deviation_risk === 'low'
+                || hit.route_deviation_risk === 'medium'
+                || hit.route_deviation_risk === 'high'
+                ? hit.route_deviation_risk
+                : hit.routeDeviationRisk === 'unknown'
+                    || hit.routeDeviationRisk === 'low'
+                    || hit.routeDeviationRisk === 'medium'
+                    || hit.routeDeviationRisk === 'high'
+                        ? hit.routeDeviationRisk
+                        : matchedCamera?.routeDeviationRisk,
+            traffic_congestion_status: hit.traffic_congestion_status === 'unavailable'
+                || hit.traffic_congestion_status === 'inferred'
+                || hit.traffic_congestion_status === 'verified'
+                ? hit.traffic_congestion_status
+                : hit.trafficCongestionStatus === 'unavailable'
+                    || hit.trafficCongestionStatus === 'inferred'
+                    || hit.trafficCongestionStatus === 'verified'
+                        ? hit.trafficCongestionStatus
+                        : matchedCamera?.trafficCongestionStatus,
+            traffic_congestion_level: hit.traffic_congestion_level === 'low'
+                || hit.traffic_congestion_level === 'medium'
+                || hit.traffic_congestion_level === 'high'
+                ? hit.traffic_congestion_level
+                : hit.trafficCongestionLevel === 'low'
+                    || hit.trafficCongestionLevel === 'medium'
+                    || hit.trafficCongestionLevel === 'high'
+                        ? hit.trafficCongestionLevel
+                        : matchedCamera?.trafficCongestionLevel,
+            traffic_congestion_source: hit.traffic_congestion_source === 'none'
+                || hit.traffic_congestion_source === 'eta_spacing'
+                || hit.traffic_congestion_source === 'external_traffic_api'
+                ? hit.traffic_congestion_source
+                : hit.trafficCongestionSource === 'none'
+                    || hit.trafficCongestionSource === 'eta_spacing'
+                    || hit.trafficCongestionSource === 'external_traffic_api'
+                        ? hit.trafficCongestionSource
+                        : matchedCamera?.trafficCongestionSource,
             ocr_status: ocrStatus,
             ocr_engine: typeof hit.ocr_engine === 'string'
                 ? hit.ocr_engine
@@ -1104,6 +1328,7 @@ function normalizeTrackingResult(
                         : null,
                 }
                 : null,
+            vehicle_signature: parseVehicleSignature(hit.vehicle_signature ?? hit.vehicleSignature),
         };
     });
 
@@ -1208,6 +1433,12 @@ export default function ForensicModal({
     backendProvider = 'missing',
     backendMessage,
     backendOcr = null,
+    backendVehicleReference = null,
+    backendVehicleVmmrReadiness = null,
+    backendVehicleReidReadiness = null,
+    backendVehicleReidRuntime = null,
+    backendVehicleReidRuntimeBacktest = null,
+    backendExecutionHarness = null,
     trackingActiveCctvId = null,
     onLocate,
     onTrackingResultChange,
@@ -1894,6 +2125,24 @@ export default function ForensicModal({
         : backendProvider === 'fallback'
             ? '데모 fallback'
             : '실전 백엔드';
+    const ocrPill = !backendEnabled
+        ? '상태 확인 불가'
+        : !backendOcr?.configured
+            ? '미설정'
+            : backendOcr.error
+                ? '오류'
+                : backendOcr.status === 'ready' || backendOcr.ready
+                    ? '준비 완료'
+                    : backendOcr.status === 'lazy_not_initialized'
+                        ? '대기 중'
+                        : '확인 중';
+    const ocrPillColor = !backendEnabled || backendOcr?.error
+        ? '#ef4444'
+        : !backendOcr?.configured
+            ? '#f59e0b'
+            : backendOcr.status === 'ready' || backendOcr.ready
+                ? '#22c55e'
+                : '#38bdf8';
     const ocrRuntimeNote = !backendEnabled
         ? {
             color: '#fca5a5',
@@ -1935,6 +2184,145 @@ export default function ForensicModal({
                             border: '1px solid rgba(148,163,184,0.22)',
                             text: `번호판 OCR 상태 확인 중${backendOcr?.engine ? ` (${backendOcr.engine})` : ''}. 현재 차량 검출 흐름은 정상입니다.`,
                         };
+    const ocrRuntimeMeta = [
+        getOcrOperationalScopeLabel(backendOcr?.operational_scope),
+        getOcrVerificationStatusLabel(backendOcr?.verification_status),
+        getOcrBacktestStatusLabel(backendOcr?.backtest_status),
+        backendOcr?.backtest_required_buckets?.length
+            ? `백테스트 범위: ${backendOcr.backtest_required_buckets.join(', ')}`
+            : null,
+        backendOcr?.backtest_completed_buckets?.length
+            ? `검토 완료: ${backendOcr.backtest_completed_buckets.join(', ')}`
+            : null,
+        backendOcr?.backtest_engine_comparisons?.length
+            ? `엔진 비교: ${backendOcr.backtest_engine_comparisons.map((item) => item.engine).join(', ')}`
+            : null,
+        backendOcr?.validation_note
+            ? '주의: OCR health는 런타임 상태만 뜻하며, 야간·역광·원거리 정확도 보증이 아닙니다.'
+            : null,
+        backendOcr?.backtest_validation_note
+            ? '주의: OCR/ALPR 백테스트는 아직 실전 승인 전입니다.'
+            : null,
+    ].filter((item): item is string => Boolean(item));
+    const activeVmmrModelCount = Math.max(0, Number(backendVehicleVmmrReadiness?.active_models ?? 0));
+    const vmmrReady = Boolean(backendVehicleVmmrReadiness?.fine_grained_model_ready)
+        || backendVehicleVmmrReadiness?.status === 'active_report_ready';
+    const vmmrPill = !backendEnabled
+        ? '상태 확인 불가'
+        : backendProvider === 'fallback'
+            ? 'fallback 미연결'
+            : vmmrReady
+                ? `검증 리포트 ${activeVmmrModelCount}건`
+                : backendVehicleVmmrReadiness?.status === 'missing'
+                    ? 'readiness 없음'
+                    : backendVehicleVmmrReadiness?.status === 'no_active_model'
+                        ? 'active 모델 없음'
+                        : '미활성';
+    const vmmrPillColor = !backendEnabled || backendVehicleVmmrReadiness?.error
+        ? '#ef4444'
+        : vmmrReady
+            ? '#22c55e'
+            : '#f59e0b';
+    const vmmrRuntimeNote = !backendEnabled
+        ? {
+            color: '#fca5a5',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.22)',
+            text: 'VMMR readiness 상태를 확인하려면 먼저 분석 백엔드 연결이 필요합니다.',
+        }
+        : backendVehicleVmmrReadiness?.error
+            ? {
+                color: '#fca5a5',
+                background: 'rgba(239,68,68,0.08)',
+                border: '1px solid rgba(239,68,68,0.22)',
+                text: `VMMR readiness 확인 실패: ${backendVehicleVmmrReadiness.error}`,
+            }
+            : vmmrReady
+                ? {
+                    color: '#bbf7d0',
+                    background: 'rgba(16,185,129,0.08)',
+                    border: '1px solid rgba(16,185,129,0.22)',
+                    text: 'VMMR 검증 리포트가 임계값을 통과했습니다. 단, 현재 런타임 분류기 호출은 아직 연결하지 않아 제조사/모델/세부 차종은 계속 미판정으로 유지합니다.',
+                }
+                : {
+                    color: '#fcd34d',
+                    background: 'rgba(245,158,11,0.08)',
+                    border: '1px solid rgba(245,158,11,0.22)',
+                    text: `VMMR active 모델이 없습니다${backendVehicleVmmrReadiness?.activation_threshold ? ` (mAP50 기준 ${backendVehicleVmmrReadiness.activation_threshold})` : ''}. 제조사/모델/SUV 세부 분류는 검증 전까지 열지 않습니다.`,
+                };
+    const activeReidModelCount = Math.max(0, Number(backendVehicleReidReadiness?.active_models ?? 0));
+    const reidReady = Boolean(backendVehicleReidReadiness?.same_vehicle_reid_ready)
+        || backendVehicleReidReadiness?.status === 'active_report_ready';
+    const reidPill = !backendEnabled
+        ? '상태 확인 불가'
+        : backendProvider === 'fallback'
+            ? 'fallback 미연결'
+            : reidReady
+                ? `검증 리포트 ${activeReidModelCount}건`
+                : backendVehicleReidReadiness?.status === 'missing'
+                    ? 'readiness 없음'
+                    : backendVehicleReidReadiness?.status === 'no_active_model'
+                        ? 'active 모델 없음'
+                        : '미활성';
+    const reidPillColor = !backendEnabled || backendVehicleReidReadiness?.error
+        ? '#ef4444'
+        : reidReady
+            ? '#22c55e'
+            : '#f59e0b';
+    const reidRuntimeReady = backendVehicleReidRuntime?.status === 'runtime_ready';
+    const reidRuntimeBacktestSuffix = backendVehicleReidRuntimeBacktest
+        ? ` · 백테스트 ${backendVehicleReidRuntimeBacktest.status ?? 'pending_review'}${Number.isFinite(Number(backendVehicleReidRuntimeBacktest.active_report_count)) ? ` (${backendVehicleReidRuntimeBacktest.active_report_count})` : ''}`
+        : '';
+    const reidRuntimeNote = !backendEnabled
+        ? {
+            color: '#fca5a5',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.22)',
+            text: 'ReID readiness 상태를 확인하려면 먼저 분석 백엔드 연결이 필요합니다.',
+        }
+            : backendVehicleReidRuntime?.error
+                ? {
+                    color: '#fca5a5',
+                    background: 'rgba(239,68,68,0.08)',
+                    border: '1px solid rgba(239,68,68,0.22)',
+                    text: `ReID runtime 확인 실패: ${backendVehicleReidRuntime.error}${reidRuntimeBacktestSuffix}`,
+                }
+                : reidRuntimeReady
+                    ? {
+                        color: '#bbf7d0',
+                        background: 'rgba(16,185,129,0.08)',
+                        border: '1px solid rgba(16,185,129,0.22)',
+                        text: `ReID runtime ${backendVehicleReidRuntime?.backend ?? 'baseline'} 가 활성화되어 gallery search를 수행합니다${Number.isFinite(Number(backendVehicleReidRuntime?.gallery_entries)) ? ` · gallery ${backendVehicleReidRuntime?.gallery_entries}` : ''}${reidRuntimeBacktestSuffix}.`,
+                    }
+                    : backendVehicleReidRuntime?.status
+                        ? {
+                            color: '#fcd34d',
+                            background: 'rgba(245,158,11,0.08)',
+                            border: '1px solid rgba(245,158,11,0.22)',
+                            text: `ReID runtime 상태: ${backendVehicleReidRuntime.status}${backendVehicleReidRuntime.validation_note ? ` · ${backendVehicleReidRuntime.validation_note}` : ''}${reidRuntimeBacktestSuffix}.`,
+                        }
+        : backendVehicleReidReadiness?.error
+            ? {
+                color: '#fca5a5',
+                background: 'rgba(239,68,68,0.08)',
+                border: '1px solid rgba(239,68,68,0.22)',
+                text: `ReID readiness 확인 실패: ${backendVehicleReidReadiness.error}`,
+            }
+            : reidReady
+                ? {
+                    color: '#bbf7d0',
+                    background: 'rgba(16,185,129,0.08)',
+                    border: '1px solid rgba(16,185,129,0.22)',
+                    text: 'ReID 검증 리포트가 임계값을 통과했습니다. runtime이 아직 붙지 않았다면 동일 차량 판정은 계속 비활성입니다.',
+                }
+                : {
+                    color: '#fcd34d',
+                    background: 'rgba(245,158,11,0.08)',
+                    border: '1px solid rgba(245,158,11,0.22)',
+                    text: `ReID active 모델이 없습니다${backendVehicleReidReadiness?.activation_threshold ? ` (Top-1 기준 ${backendVehicleReidReadiness.activation_threshold})` : ''}. 동일 차량 재식별은 검증 전까지 열지 않습니다.`,
+                };
+    const executionHarnessLabel = getHarnessStageLabel(backendExecutionHarness);
+    const executionHarnessPhases = backendExecutionHarness?.phases ?? [];
 
     return (
         <div
@@ -2014,7 +2402,7 @@ export default function ForensicModal({
                     <div
                         style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                             gap: 8,
                             marginBottom: 14,
                         }}
@@ -2036,6 +2424,39 @@ export default function ForensicModal({
                                     : backendProvider === 'fallback'
                                         ? '#f59e0b'
                                         : '#22c55e',
+                            },
+                            {
+                                label: '번호판 OCR',
+                                value: backendOcr?.engine ? `${ocrPill} / ${backendOcr.engine}` : ocrPill,
+                                color: ocrPillColor,
+                            },
+                            {
+                                label: '차량 백데이터',
+                                value: backendVehicleReference?.entries
+                                    ? `catalog ${backendVehicleReference.entries}건`
+                                    : backendVehicleReference?.status === 'loaded'
+                                        ? 'catalog loaded'
+                                        : backendVehicleReference?.status === 'missing'
+                                            ? 'catalog 없음'
+                                            : 'catalog 비어 있음',
+                                color: backendVehicleReference?.entries
+                                    ? '#22c55e'
+                                    : '#f59e0b',
+                            },
+                            {
+                                label: 'VMMR 세분화',
+                                value: vmmrPill,
+                                color: vmmrPillColor,
+                            },
+                            {
+                                label: 'ReID 동일차량',
+                                value: reidPill,
+                                color: reidPillColor,
+                            },
+                            {
+                                label: '실행 하네스',
+                                value: executionHarnessLabel,
+                                color: '#93c5fd',
                             },
                         ].map((item) => (
                             <div
@@ -2088,6 +2509,23 @@ export default function ForensicModal({
                         </div>
                     )}
 
+                    {executionHarnessPhases.length > 0 && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                padding: '10px 12px',
+                                background: 'rgba(59,130,246,0.07)',
+                                border: '1px solid rgba(59,130,246,0.18)',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                color: '#bfdbfe',
+                                lineHeight: 1.7,
+                            }}
+                        >
+                            {executionHarnessPhases.map((phase) => `${phase.stage ?? 'stage'} → ${phase.model ?? 'model'}`).join(' · ')}
+                        </div>
+                    )}
+
                     <div
                         style={{
                             marginBottom: 12,
@@ -2101,6 +2539,41 @@ export default function ForensicModal({
                         }}
                     >
                         {ocrRuntimeNote.text}
+                        {ocrRuntimeMeta.length > 0 && (
+                            <div style={{ marginTop: 6, color: '#cbd5e1' }}>
+                                {ocrRuntimeMeta.join(' · ')}
+                            </div>
+                        )}
+                    </div>
+
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            padding: '10px 12px',
+                            background: vmmrRuntimeNote.background,
+                            border: vmmrRuntimeNote.border,
+                            borderRadius: 8,
+                            fontSize: 11,
+                            color: vmmrRuntimeNote.color,
+                            lineHeight: 1.7,
+                        }}
+                    >
+                        {vmmrRuntimeNote.text}
+                    </div>
+
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            padding: '10px 12px',
+                            background: reidRuntimeNote.background,
+                            border: reidRuntimeNote.border,
+                            borderRadius: 8,
+                            fontSize: 11,
+                            color: reidRuntimeNote.color,
+                            lineHeight: 1.7,
+                        }}
+                    >
+                        {reidRuntimeNote.text}
                     </div>
 
                     {routeFocusSummary && (
@@ -2118,6 +2591,8 @@ export default function ForensicModal({
                         >
                             현재 추적은 {routeFocusSummary.originLabel}{routeFocusSummary.destinationLabel ? ` → ${routeFocusSummary.destinationLabel}` : ''} / {routeFocusSummary.roadLabel} 기준으로 동작합니다.
                             {routeFocusSummary.directionLabel} / {routeFocusSummary.directionSourceLabel} / {routeFocusSummary.speedKph}km/h / {routeFocusSummary.scopeLabel} 기준으로 구간 {routeFocusSummary.segmentCount}대 중 집중 감시 {routeFocusSummary.focusCount}대를 우선 배치하고, 같은 도로축 전체 {routeFocusSummary.bundleCount}대를 검색 순서에 반영합니다. 식별 우선 {routeFocusSummary.highIdentificationCount}대, 확인 우선 {routeFocusSummary.mediumIdentificationCount}대, 즉시 {routeFocusSummary.immediateCount}대, 단기 {routeFocusSummary.shortCount}대, 중기 {routeFocusSummary.mediumCount}대가 우선입니다.
+                            {` 혼잡도 ${routeFocusSummary.trafficCongestionStatus === 'inferred' ? `추정${routeFocusSummary.trafficCongestionLevel ? `(${routeFocusSummary.trafficCongestionLevel})` : ''}` : routeFocusSummary.trafficCongestionStatus === 'verified' ? '검증됨' : '미확인'} / ${routeFocusSummary.trafficCongestionSource === 'eta_spacing' ? 'ETA 간격' : routeFocusSummary.trafficCongestionSource === 'external_traffic_api' ? '외부 교통 API' : '없음'}로만 표시합니다.`}
+                            {` 지연 위험 ${routeFocusSummary.delayRiskScore ?? 0}/100 / 경로 이탈 ${routeFocusSummary.routeDeviationRisk ?? 'unknown'}는 추적 보조 값입니다.`}
                         </div>
                     )}
 
@@ -2494,6 +2969,53 @@ export default function ForensicModal({
                                     </div>
                                 </div>
                             </div>
+                            {analysisResult.vehicle_signature && (
+                                <div
+                                    style={{
+                                        padding: '8px 10px',
+                                        background: 'rgba(148,163,184,0.06)',
+                                        border: '1px solid rgba(148,163,184,0.14)',
+                                        borderRadius: 8,
+                                        fontSize: 10,
+                                        color: '#cbd5e1',
+                                        lineHeight: 1.6,
+                                    }}
+                                >
+                                    차량 서명: YOLO 검출 라벨 {analysisResult.vehicle_signature.detected_labels.length > 0
+                                        ? analysisResult.vehicle_signature.detected_labels.join(', ')
+                                        : '없음'}
+                                    {analysisResult.vehicle_signature.generic_vehicle_type
+                                        ? ` · 일반 차종 ${analysisResult.vehicle_signature.generic_vehicle_type}`
+                                        : ''}
+                                    {analysisResult.vehicle_signature.reference_catalog_status
+                                        ? ` · 백데이터 ${analysisResult.vehicle_signature.reference_catalog_status}`
+                                        : ''}
+                                    {analysisResult.vehicle_signature.vmmr_readiness_status
+                                        ? ` · VMMR ${analysisResult.vehicle_signature.vmmr_readiness_status}`
+                                        : ''}
+                                    {Number.isFinite(analysisResult.vehicle_signature.vmmr_active_model_count)
+                                        ? ` · active model ${analysisResult.vehicle_signature.vmmr_active_model_count}`
+                                        : ''}
+                                    {analysisResult.vehicle_signature.reid_readiness_status
+                                        ? ` · ReID ${analysisResult.vehicle_signature.reid_readiness_status}`
+                                        : ''}
+                                    {Number.isFinite(analysisResult.vehicle_signature.reid_active_model_count)
+                                        ? ` · ReID active model ${analysisResult.vehicle_signature.reid_active_model_count}`
+                                        : ''}
+                                    {analysisResult.vehicle_signature.reid_runtime_status
+                                        ? ` · ReID runtime ${analysisResult.vehicle_signature.reid_runtime_status}`
+                                        : ''}
+                                    {analysisResult.vehicle_signature.reid_match_status
+                                        ? ` · ReID match ${analysisResult.vehicle_signature.reid_match_status}`
+                                        : ''}
+                                    {Number.isFinite(
+                                        Number(analysisResult.vehicle_signature.reid_match_score),
+                                    )
+                                        ? ` · score ${Number(analysisResult.vehicle_signature.reid_match_score).toFixed(3)}`
+                                        : ''}
+                                    {' · 제조사/세부 모델 및 동일차량 ReID는 검증 런타임 연결 전까지 판정하지 않음'}
+                                </div>
+                            )}
                             {(analysisOcrChips.length > 0 || analysisOcrSummary?.diagnostics?.top_candidate_reason) && (
                                 <div
                                     style={{
@@ -3300,6 +3822,13 @@ export default function ForensicModal({
                                                 ? hit.plate_candidates.join(', ')
                                                 : (hit.plate || effectiveTargetPlate || '미상')} · 색상 {hit.color || effectiveTargetColor || '미상'} · 차종 {hit.vehicle_type || effectiveTargetVehicleType || '미상'}
                                         </div>
+                                        {hit.vehicle_signature && (
+                                            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4, lineHeight: 1.6 }}>
+                                                YOLO 라벨 {hit.vehicle_signature.detected_labels.length > 0
+                                                    ? hit.vehicle_signature.detected_labels.join(', ')
+                                                    : '없음'} · 백데이터 {hit.vehicle_signature.reference_catalog_status ?? 'unknown'} · VMMR {hit.vehicle_signature.vmmr_readiness_status ?? 'unknown'} · ReID {hit.vehicle_signature.reid_readiness_status ?? 'unknown'} · ReID runtime {hit.vehicle_signature.reid_runtime_status ?? 'unknown'} · ReID match {hit.vehicle_signature.reid_match_status ?? 'unknown'} · 제조사/세부 모델/동일차량 미판정
+                                            </div>
+                                        )}
                                         {trackingOcrChips.length > 0 && (
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                                                 {trackingOcrChips.map((chip) => {

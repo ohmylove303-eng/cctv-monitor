@@ -135,6 +135,12 @@ export default function DashboardPage() {
         provider: 'missing' as 'configured' | 'fallback' | 'missing',
         mode: null as string | null,
         ocr: null as ForensicStatusResponse['ocr'] | null,
+        vehicleReference: null as ForensicStatusResponse['vehicleReference'] | null,
+        vehicleVmmrReadiness: null as ForensicStatusResponse['vehicleVmmrReadiness'] | null,
+        vehicleReidReadiness: null as ForensicStatusResponse['vehicleReidReadiness'] | null,
+        vehicleReidRuntime: null as ForensicStatusResponse['vehicleReidRuntime'] | null,
+        vehicleReidRuntimeBacktest: null as ForensicStatusResponse['vehicleReidRuntimeBacktest'] | null,
+        executionHarness: null as ForensicStatusResponse['executionHarness'] | null,
         message: 'ITS 차량 분석 서버 상태 확인 전',
     });
 
@@ -217,6 +223,12 @@ export default function DashboardPage() {
                     provider: status.provider,
                     mode: status.mode ?? null,
                     ocr: status.ocr ?? null,
+                    vehicleReference: status.vehicleReference ?? null,
+                    vehicleVmmrReadiness: status.vehicleVmmrReadiness ?? null,
+                    vehicleReidReadiness: status.vehicleReidReadiness ?? null,
+                    vehicleReidRuntime: status.vehicleReidRuntime ?? null,
+                    vehicleReidRuntimeBacktest: status.vehicleReidRuntimeBacktest ?? null,
+                    executionHarness: status.executionHarness ?? null,
                     message: status.message,
                 });
             })
@@ -227,6 +239,12 @@ export default function DashboardPage() {
                     provider: 'missing',
                     mode: null,
                     ocr: null,
+                    vehicleReference: null,
+                    vehicleVmmrReadiness: null,
+                    vehicleReidReadiness: null,
+                    vehicleReidRuntime: null,
+                    vehicleReidRuntimeBacktest: null,
+                    executionHarness: null,
                     message: error instanceof Error
                         ? error.message
                         : 'ITS 차량 분석 서버 상태를 확인할 수 없습니다.',
@@ -894,6 +912,8 @@ export default function DashboardPage() {
                                 shortCount: routeMonitoringPlan.shortIds.length,
                                 mediumCount: routeMonitoringPlan.mediumIds.length,
                                 candidates: routeMonitoringPlan.candidates,
+                                delayRiskScore: routeMonitoringPlan.candidates[0]?.delayRiskScore ?? 0,
+                                routeDeviationRisk: routeMonitoringPlan.candidates[0]?.routeDeviationRisk ?? 'unknown',
                             } : null}
                             onSelectRecommended={handleLocate}
                             onClose={() => setSelectedId(null)}
@@ -958,12 +978,23 @@ export default function DashboardPage() {
                         shortCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '단기').length,
                         scopeLabel: getRouteScopeLabel(routeScopeMode),
                         mediumCount: routeMonitoringPlan.candidates.filter((candidate) => candidate.timeWindowLabel === '중기').length,
+                        trafficCongestionStatus: routeMonitoringPlan.candidates[0]?.trafficCongestionStatus ?? 'unavailable',
+                        trafficCongestionLevel: routeMonitoringPlan.candidates[0]?.trafficCongestionLevel,
+                        trafficCongestionSource: routeMonitoringPlan.candidates[0]?.trafficCongestionSource ?? 'none',
+                        delayRiskScore: routeMonitoringPlan.candidates[0]?.delayRiskScore ?? 0,
+                        routeDeviationRisk: routeMonitoringPlan.candidates[0]?.routeDeviationRisk ?? 'unknown',
                     } : null}
                     routeContext={forensicRouteContext}
                     backendEnabled={forensicStatus.enabled}
                     backendProvider={forensicStatus.provider}
                     backendMessage={forensicStatus.message}
                     backendOcr={forensicStatus.ocr}
+                    backendVehicleReference={forensicStatus.vehicleReference}
+                    backendVehicleVmmrReadiness={forensicStatus.vehicleVmmrReadiness}
+                    backendVehicleReidReadiness={forensicStatus.vehicleReidReadiness}
+                    backendVehicleReidRuntime={forensicStatus.vehicleReidRuntime}
+                    backendVehicleReidRuntimeBacktest={forensicStatus.vehicleReidRuntimeBacktest}
+                    backendExecutionHarness={forensicStatus.executionHarness}
                     trackingActiveCctvId={trackingActiveCctvId}
                     onTrackingResultChange={setTrackingOverlay}
                     onTrackingActiveCctvChange={setTrackingActiveCctvId}

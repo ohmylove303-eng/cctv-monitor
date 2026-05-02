@@ -1,0 +1,15 @@
+{
+  "taxonomy": "ocr_alpr_backtest_readiness_v1",
+  "status": "pending_review",
+  "active_report_count": 0,
+  "required_buckets": [
+    "night",
+    "backlight",
+    "long_distance",
+    "low_resolution"
+  ],
+  "completed_buckets": [],
+  "runtime_integrated": false,
+  "verification_status": "pending_review",
+  "validation_note": "fixture"
+}

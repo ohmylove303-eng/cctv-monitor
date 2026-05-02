@@ -1,0 +1,100 @@
+{
+  "generatedAt": "2026-04-29T11:10:41.575Z",
+  "nextAction": "open_review_packet_fill_missing_fields_and_line_zones",
+  "inputs": {
+    "patchCsv": "/Users/jungsunghoon/cctv-monitor/data/cctv-vision-line-zone-patch.csv",
+    "reviewCsv": "/Users/jungsunghoon/cctv-monitor/data/cctv-vision-calibration-review-worklist.csv",
+    "reviewPage": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-04-29T02-11-50-394Z/line-zone-review.html",
+    "checklist": "/Users/jungsunghoon/cctv-monitor/data/cctv-vision-line-zone-patch-checklist.md"
+  },
+  "summary": {
+    "activeCatalogEntries": 0,
+    "patchRowsAppliedInDryRun": 3,
+    "reviewRows": 3,
+    "activeGatePass": 0,
+    "readyToMarkActive": 0,
+    "blocked": 3,
+    "sampleCaptured": 3,
+    "sampleFrames": 9
+  },
+  "targets": [
+    {
+      "cctvId": "GTIC-X-100402011",
+      "cctvName": "스마트교차로_강화.검단방향",
+      "resolution": "1920x1080",
+      "resolutionGate": "tier_a_resolution_ok_needs_distance_line_zone",
+      "maxTierByResolution": "tier_a_if_distance_<=20m",
+      "auditStatus": "review_needed",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "manualInputsRemaining": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt",
+        "directionCalibrationStatus",
+        "lineZoneForward",
+        "lineZoneReverse"
+      ],
+      "nextAction": "fill_missing_fields_and_manual_line_zone_review"
+    },
+    {
+      "cctvId": "GTIC-X-102802102",
+      "cctvName": "스마트교차로_강화.김포시청방향",
+      "resolution": "1280x720",
+      "resolutionGate": "tier_b_resolution_review_not_tier_a",
+      "maxTierByResolution": "tier_b_or_lower",
+      "auditStatus": "review_needed",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "manualInputsRemaining": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt",
+        "directionCalibrationStatus",
+        "lineZoneForward",
+        "lineZoneReverse"
+      ],
+      "nextAction": "fill_missing_fields_and_manual_line_zone_review"
+    },
+    {
+      "cctvId": "GTIC-X-101901068",
+      "cctvName": "스마트교차로_강화.서울방향",
+      "resolution": "1920x1080",
+      "resolutionGate": "tier_a_resolution_ok_needs_distance_line_zone",
+      "maxTierByResolution": "tier_a_if_distance_<=20m",
+      "auditStatus": "review_needed",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "manualInputsRemaining": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt",
+        "directionCalibrationStatus",
+        "lineZoneForward",
+        "lineZoneReverse"
+      ],
+      "nextAction": "fill_missing_fields_and_manual_line_zone_review"
+    }
+  ]
+}

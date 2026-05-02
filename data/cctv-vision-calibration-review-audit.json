@@ -1,0 +1,75 @@
+{
+  "generatedAt": "2026-04-29T11:08:24.873Z",
+  "input": {
+    "reviewCsv": "/Users/jungsunghoon/cctv-monitor/data/cctv-vision-calibration-review-worklist.csv",
+    "minSampleCount": 3
+  },
+  "summary": {
+    "rows": 3,
+    "counts": {
+      "review_needed": 3
+    },
+    "activeGatePass": 0,
+    "readyToMarkActive": 0,
+    "blocked": 3
+  },
+  "items": [
+    {
+      "rowNumber": 2,
+      "cctvId": "GTIC-X-100402011",
+      "cctvName": "스마트교차로_강화.검단방향",
+      "region": "김포",
+      "reviewStatus": "review_needed",
+      "auditStatus": "review_needed",
+      "visionTier": "",
+      "directionCalibrationStatus": "pending",
+      "sampleCount": "3",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "gateError": "row 2: visionTier is required for active review"
+    },
+    {
+      "rowNumber": 3,
+      "cctvId": "GTIC-X-102802102",
+      "cctvName": "스마트교차로_강화.김포시청방향",
+      "region": "김포",
+      "reviewStatus": "review_needed",
+      "auditStatus": "review_needed",
+      "visionTier": "",
+      "directionCalibrationStatus": "pending",
+      "sampleCount": "3",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "gateError": "row 2: visionTier is required for active review"
+    },
+    {
+      "rowNumber": 4,
+      "cctvId": "GTIC-X-101901068",
+      "cctvName": "스마트교차로_강화.서울방향",
+      "region": "김포",
+      "reviewStatus": "review_needed",
+      "auditStatus": "review_needed",
+      "visionTier": "",
+      "directionCalibrationStatus": "pending",
+      "sampleCount": "3",
+      "missing": [
+        "visionTier",
+        "identificationUse",
+        "approachDistanceMeters",
+        "reviewer",
+        "reviewedAt"
+      ],
+      "gateError": "row 2: visionTier is required for active review"
+    }
+  ]
+}

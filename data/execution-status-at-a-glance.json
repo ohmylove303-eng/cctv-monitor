@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "execution_status_at_a_glance_v1",
+  "generatedAt": "2026-05-02T00:17:03.284Z",
+  "coordinates": {
+    "activeRows": 34,
+    "reviewNeededRows": 172,
+    "pendingRows": 54,
+    "blockedFromRuntime": 226,
+    "autoPromotableRows": 0,
+    "p1ManualReview": 15,
+    "topReviewTargets": [
+      "IC-CR-071",
+      "IC-CR-072",
+      "IC-CR-095",
+      "IC-CR-096",
+      "IC-CR-014"
+    ],
+    "approvedIds": [
+      "IC-CR-070",
+      "IC-CR-094",
+      "IC-CR-013",
+      "IC-CR-016",
+      "IC-CR-022"
+    ],
+    "nextAction": "review_priority_rows_manually_before_any_active_promotion"
+  },
+  "visionCalibration": {
+    "catalogActiveEntries": 0,
+    "patchApplied": 3,
+    "reviewPacketRows": 3,
+    "reviewPacketSampleFrames": 9,
+    "promoteDryRunActiveRows": 0,
+    "nextAction": "open_review_packet_fill_missing_fields_and_line_zones"
+  },
+  "ocrAlpr": {
+    "status": "pending_review",
+    "activeReportCount": 0,
+    "runtimeIntegrated": false,
+    "requiredBuckets": [
+      "night",
+      "backlight",
+      "long_distance",
+      "low_resolution"
+    ],
+    "completedBuckets": [],
+    "reportCount": 0,
+    "engineComparisons": 0
+  },
+  "vehicleReference": {
+    "entries": 0,
+    "status": "empty"
+  },
+  "vehicleVmmr": {
+    "datasets": 0,
+    "modelReports": 0,
+    "activeModelCount": 0,
+    "fineGrainedModelReady": false,
+    "activationThreshold": 0.85
+  },
+  "vehicleReid": {
+    "readinessDatasets": 0,
+    "readinessModelReports": 0,
+    "runtimeStatus": "review_needed",
+    "runtimeActiveReports": 0,
+    "runtimeSampleCountTotal": 11,
+    "runtimeReviewedSampleCount": 11,
+    "runtimeMatchSuccessRate": 1,
+    "runtimeFalsePositiveRate": 0,
+    "runtimeGalleryGrowth": 11,
+    "runtimeBucketsCovered": [
+      "day",
+      "night",
+      "cross_camera",
+      "long_distance",
+      "low_resolution"
+    ],
+    "syntheticStatus": "synthetic_validated",
+    "syntheticMatchSuccessRate": 1,
+    "syntheticFalsePositiveRate": 0,
+    "syntheticGalleryEntriesAfterRun": 3
+  },
+  "trackingStore": {
+    "requestedBackend": "auto",
+    "dsnConfigured": false,
+    "envSource": null,
+    "supportedBackends": [
+      "memory",
+      "json_file",
+      "postgres"
+    ],
+    "fallbackEnabled": true,
+    "liveStatus": "dsn_missing"
+  },
+  "routeMonitoring": {
+    "implemented": true,
+    "features": [
+      "delayRiskScore",
+      "routeDeviationRisk",
+      "laneDirectionStatus",
+      "trafficCongestionStatus=eta_spacing"
+    ],
+    "verifiedBy": [
+      "node scripts/test-route-monitoring-order.js",
+      "npm run build"
+    ]
+  },
+  "executionHarness": {
+    "status": "active",
+    "currentStage": "implementation",
+    "currentStageModel": "GPT-5.4 mini",
+    "currentGoal": "existing-layer overlay with minimal token use",
+    "phases": [
+      {
+        "stage": "design",
+        "model": "GPT-5.5"
+      },
+      {
+        "stage": "implementation",
+        "model": "GPT-5.4 mini"
+      },
+      {
+        "stage": "verification",
+        "model": "GPT-5.4 mini"
+      },
+      {
+        "stage": "backtest",
+        "model": "GPT-5.4 nano"
+      },
+      {
+        "stage": "final_approval",
+        "model": "GPT-5.5"
+      }
+    ]
+  }
+}

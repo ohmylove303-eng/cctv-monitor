@@ -1139,6 +1139,8 @@ function buildRouteMonitoringGeoJson(plan: RouteMonitoringPlan | null, items: Cc
                 timeWindowRank,
                 identificationGrade: candidate.identificationGrade,
                 identificationScore: candidate.identificationScore,
+                visionTier: candidate.visionCalibration?.visionTier ?? 'unverified',
+                directionCalibrationStatus: candidate.visionCalibration?.directionCalibrationStatus ?? 'none',
             },
             geometry: {
                 type: 'Point',

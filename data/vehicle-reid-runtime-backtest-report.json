@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_reid_runtime_backtest_report_v1",
+  "active_report_count": 0,
+  "policy": {
+    "noRuntimeMatchApprovalWithoutReviewedReport": true,
+    "requiredBuckets": [
+      "day",
+      "night",
+      "cross_camera",
+      "long_distance",
+      "low_resolution"
+    ],
+    "minSamplesPerBucket": 20,
+    "minSamplesTotal": 100,
+    "matchSuccessRateThreshold": 0.85,
+    "falsePositiveRateMax": 0.05,
+    "falseNegativeRateMax": 0.15,
+    "notes": "Same-vehicle ReID runtime remains disabled until reviewed backtest observations pass this gate."
+  },
+  "reports": [
+    {
+      "id": "vehicle-reid-runtime-backtest-main",
+      "status": "review_needed",
+      "engine": "baseline",
+      "datasetId": "vehicle-reid-backtest-samples",
+      "sampleCountTotal": 11,
+      "reviewedSampleCount": 11,
+      "missingObservationCount": 0,
+      "bucketResults": [
+        {
+          "bucket": "day",
+          "sampleCount": 3,
+          "reviewedSampleCount": 3,
+          "missingObservationCount": 0,
+          "expectedPositiveCount": 2,
+          "expectedNegativeCount": 1,
+          "truePositiveMatches": 2,
+          "trueNegativeUnmatched": 1,
+          "falsePositiveMatches": 0,
+          "falseNegativeUnmatched": 0,
+          "matchSuccessRate": 1,
+          "falsePositiveRate": 0,
+          "falseNegativeRate": 0
+        },
+        {
+          "bucket": "night",
+          "sampleCount": 1,
+          "reviewedSampleCount": 1,
+          "missingObservationCount": 0,
+          "expectedPositiveCount": 0,
+          "expectedNegativeCount": 1,
+          "truePositiveMatches": 0,
+          "trueNegativeUnmatched": 1,
+          "falsePositiveMatches": 0,
+          "falseNegativeUnmatched": 0,
+          "matchSuccessRate": 0,
+          "falsePositiveRate": 0,
+          "falseNegativeRate": 0
+        },
+        {
+          "bucket": "cross_camera",
+          "sampleCount": 3,
+          "reviewedSampleCount": 3,
+          "missingObservationCount": 0,
+          "expectedPositiveCount": 2,
+          "expectedNegativeCount": 1,
+          "truePositiveMatches": 2,
+          "trueNegativeUnmatched": 1,
+          "falsePositiveMatches": 0,
+          "falseNegativeUnmatched": 0,
+          "matchSuccessRate": 1,
+          "falsePositiveRate": 0,
+          "falseNegativeRate": 0
+        },
+        {
+          "bucket": "long_distance",
+          "sampleCount": 1,
+          "reviewedSampleCount": 1,
+          "missingObservationCount": 0,
+          "expectedPositiveCount": 0,
+          "expectedNegativeCount": 1,
+          "truePositiveMatches": 0,
+          "trueNegativeUnmatched": 1,
+          "falsePositiveMatches": 0,
+          "falseNegativeUnmatched": 0,
+          "matchSuccessRate": 0,
+          "falsePositiveRate": 0,
+          "falseNegativeRate": 0
+        },
+        {
+          "bucket": "low_resolution",
+          "sampleCount": 3,
+          "reviewedSampleCount": 3,
+          "missingObservationCount": 0,
+          "expectedPositiveCount": 2,
+          "expectedNegativeCount": 1,
+          "truePositiveMatches": 2,
+          "trueNegativeUnmatched": 1,
+          "falsePositiveMatches": 0,
+          "falseNegativeUnmatched": 0,
+          "matchSuccessRate": 1,
+          "falsePositiveRate": 0,
+          "falseNegativeRate": 0
+        }
+      ],
+      "summary": {
+        "sampleCountTotal": 11,
+        "reviewedSampleCount": 11,
+        "missingObservationCount": 0,
+        "expectedPositiveCount": 6,
+        "expectedNegativeCount": 5,
+        "truePositiveMatches": 6,
+        "trueNegativeUnmatched": 5,
+        "falsePositiveMatches": 0,
+        "falseNegativeUnmatched": 0,
+        "matchSuccessRate": 1,
+        "falsePositiveRate": 0,
+        "falseNegativeRate": 0,
+        "galleryEntriesBefore": 0,
+        "galleryEntriesAfter": 11,
+        "galleryGrowth": 11,
+        "observationCoverage": 1
+      },
+      "evidence": {
+        "datasetPath": "/Users/jungsunghoon/cctv-monitor/data",
+        "samplesPath": "/Users/jungsunghoon/cctv-monitor/data/vehicle-reid-backtest-samples.csv",
+        "observationsPath": "/Users/jungsunghoon/cctv-monitor/data/vehicle-reid-backtest-observations.json",
+        "reportPath": "/Users/jungsunghoon/cctv-monitor/data/vehicle-reid-runtime-backtest-report.json",
+        "reviewer": "reid-seed-curator",
+        "reviewedAt": "2026-05-01",
+        "generatedAt": "2026-05-01T14:13:21.479Z",
+        "runtimeBackend": "baseline",
+        "matchThreshold": 0.92
+      }
+    }
+  ]
+}

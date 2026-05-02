@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "cctv_vision_calibration_v1",
+  "policy": {
+    "noInferenceWithoutEvidence": true,
+    "defaultStatus": "review_needed",
+    "notes": "Do not promote CCTV vision tier, line zones, or direction calibration without sample frames, distance/resolution evidence, reviewer, and reviewedAt metadata."
+  },
+  "entries": []
+}

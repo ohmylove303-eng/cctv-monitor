@@ -14,11 +14,16 @@ from uuid import uuid4
 
 import numpy as np
 
-from .models import AnalyzeRequest, AnalyzeResponse, OcrDiagnostics, QualityReport, TrackCamera, TrackHit, TrackRequest, TrackResponse
+from .models import AnalyzeRequest, AnalyzeResponse, OcrDiagnostics, QualityReport, TrackCamera, TrackHit, TrackRequest, TrackResponse, VehicleSignature
 from .settings import Settings, get_settings
+from .ocr_alpr_backtest import get_ocr_alpr_backtest_status
+from .vehicle_reference import get_vehicle_reference_status
+from .vehicle_reid_runtime import get_vehicle_reid_runtime_status, match_vehicle_reid_observations
+from .vehicle_reid_readiness import get_vehicle_reid_readiness_status
+from .vehicle_vmmr_readiness import get_vehicle_vmmr_readiness_status
 
 KST = timezone(timedelta(hours=9))
-VEHICLE_CLASS_IDS = {2: "sedan", 3: "motorcycle", 5: "bus", 7: "truck"}
+VEHICLE_CLASS_IDS = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
 OCR_RUNTIME_STATE = {
     "engine": None,
     "attempted": False,
@@ -167,7 +172,31 @@ def get_ocr_runtime_state() -> dict[str, Any]:
         "lazy_load": configured and not attempted,
         "status": status,
         "error": error,
+        "operational_scope": "verify_after_yolo_vehicle_detection",
+        "verification_status": (
+            "runtime_ready_not_accuracy_certified"
+            if ready
+            else "lazy_load_pending"
+            if configured and not attempted
+            else "runtime_unavailable"
+            if configured
+            else "disabled"
+        ),
+        "validation_note": (
+            "OCR health only reports runtime readiness. Night, backlight, long-distance, and low-resolution "
+            "ALPR accuracy still require separate reviewed backtests."
+        ),
     }
+    backtest = get_ocr_alpr_backtest_status()
+    state.update({
+        "backtest_status": backtest.get("status"),
+        "backtest_active_report_count": backtest.get("active_report_count", 0),
+        "backtest_required_buckets": backtest.get("required_buckets", []),
+        "backtest_completed_buckets": backtest.get("completed_buckets", []),
+        "backtest_runtime_integrated": backtest.get("runtime_integrated", False),
+        "backtest_verification_status": backtest.get("verification_status"),
+        "backtest_validation_note": backtest.get("validation_note"),
+    })
     return state
 
 
@@ -384,6 +413,90 @@ def run_yolo_vehicle_scan(frames: list[np.ndarray], settings: Settings) -> tuple
             ocr_inputs.extend(crop_vehicle_regions(frame, frame_boxes))
 
     return detections, labels, ocr_inputs
+
+
+def build_vehicle_signature(
+    labels: list[str],
+    target_vehicle_type: str | None = None,
+    reid_match: dict[str, Any] | None = None,
+) -> VehicleSignature:
+    distinct_labels = sorted(set(label for label in labels if label))
+    reference_status = get_vehicle_reference_status()["status"]
+    vmmr_status = get_vehicle_vmmr_readiness_status()
+    vmmr_readiness_status = str(vmmr_status.get("status") or "missing")
+    vmmr_active_model_count = int(vmmr_status.get("active_models") or 0)
+    fine_grained_model_ready = bool(vmmr_status.get("fine_grained_model_ready"))
+    reid_status = get_vehicle_reid_readiness_status()
+    reid_readiness_status = str(reid_status.get("status") or "missing")
+    reid_active_model_count = int(reid_status.get("active_models") or 0)
+    same_vehicle_reid_ready = bool(reid_status.get("same_vehicle_reid_ready"))
+    reid_runtime = get_vehicle_reid_runtime_status()
+    reid_runtime_status = str(reid_runtime.get("status") or "disabled")
+    reid_match_status = str((reid_match or {}).get("match_status") or "disabled")
+    reid_match_score = (reid_match or {}).get("match_score")
+    reid_match_threshold = (reid_match or {}).get("match_threshold")
+    reid_match_gallery_entries = (reid_match or {}).get("gallery_entries_after")
+    reid_match_reference_id = (reid_match or {}).get("best_match_id")
+    reid_match_reference_cctv_id = (reid_match or {}).get("best_match_cctv_id")
+    reid_match_reference_timestamp = (reid_match or {}).get("best_match_timestamp")
+    reid_embedding_backend = (reid_match or {}).get("embedding_backend")
+    reid_embedding_dimension = (reid_match or {}).get("embedding_dimension")
+    reid_stored_entry_id = (reid_match or {}).get("stored_entry_id")
+    evidence: list[str] = []
+
+    if distinct_labels:
+        evidence.append("YOLO COCO vehicle class detection")
+    if target_vehicle_type:
+        evidence.append("operator-provided vehicle type hint")
+    if fine_grained_model_ready:
+        evidence.append("Fine-grained VMMR readiness report passed threshold; runtime classifier not integrated")
+    else:
+        evidence.append(f"Fine-grained VMMR disabled: readiness={vmmr_readiness_status}")
+    if same_vehicle_reid_ready and reid_runtime_status == "runtime_ready":
+        if reid_match_status == "matched" and isinstance(reid_match_score, (int, float)):
+            evidence.append(
+                f"Vehicle ReID runtime matched gallery score {float(reid_match_score):.3f} "
+                f"(threshold {float(reid_match_threshold or 0.0):.3f})"
+            )
+        elif reid_match_status in {"unmatched", "no_crop", "no_embedding"}:
+            evidence.append(
+                f"Vehicle ReID runtime searched gallery and found no match above threshold "
+                f"{float(reid_match_threshold or 0.0):.3f}"
+            )
+        else:
+            evidence.append("Vehicle ReID readiness passed threshold and runtime gate is ready")
+    elif same_vehicle_reid_ready:
+        evidence.append(f"Vehicle ReID readiness passed threshold but runtime gate is {reid_runtime_status}")
+    else:
+        evidence.append(f"Vehicle ReID disabled: readiness={reid_readiness_status}")
+
+    return VehicleSignature(
+        detected_labels=distinct_labels,
+        generic_vehicle_type=distinct_labels[0] if distinct_labels else target_vehicle_type,
+        make=None,
+        model=None,
+        subtype=None,
+        verification_status="detector_only" if distinct_labels else ("target_hint_only" if target_vehicle_type else "needs_reference_data"),
+        reference_catalog_status=reference_status if reference_status in {"missing", "empty", "loaded"} else "missing",
+        vmmr_readiness_status=vmmr_readiness_status if vmmr_readiness_status in {"missing", "empty", "no_active_model", "active_report_ready"} else "missing",
+        vmmr_active_model_count=vmmr_active_model_count,
+        fine_grained_model_ready=fine_grained_model_ready,
+        reid_readiness_status=reid_readiness_status if reid_readiness_status in {"missing", "empty", "no_active_model", "active_report_ready"} else "missing",
+        reid_active_model_count=reid_active_model_count,
+        same_vehicle_reid_ready=same_vehicle_reid_ready,
+        reid_runtime_status=reid_runtime_status if reid_runtime_status in {"disabled", "readiness_not_active", "model_not_configured", "model_file_missing", "model_dimension_mismatch", "runtime_ready"} else "disabled",
+        reid_match_status=reid_match_status if reid_match_status in {"disabled", "no_crop", "no_embedding", "unmatched", "matched"} else "disabled",
+        reid_match_score=float(reid_match_score) if isinstance(reid_match_score, (int, float)) else None,
+        reid_match_threshold=float(reid_match_threshold) if isinstance(reid_match_threshold, (int, float)) else None,
+        reid_match_gallery_entries=int(reid_match_gallery_entries) if isinstance(reid_match_gallery_entries, (int, float)) else None,
+        reid_match_reference_id=str(reid_match_reference_id) if reid_match_reference_id is not None else None,
+        reid_match_reference_cctv_id=str(reid_match_reference_cctv_id) if reid_match_reference_cctv_id is not None else None,
+        reid_match_reference_timestamp=str(reid_match_reference_timestamp) if reid_match_reference_timestamp is not None else None,
+        reid_embedding_backend=str(reid_embedding_backend) if reid_embedding_backend is not None else None,
+        reid_embedding_dimension=int(reid_embedding_dimension) if isinstance(reid_embedding_dimension, (int, float)) else None,
+        reid_stored_entry_id=str(reid_stored_entry_id) if reid_stored_entry_id is not None else None,
+        evidence=evidence or ["no verified vehicle signature evidence"],
+    )
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -733,6 +846,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     settings = get_settings()
     timestamp = now_kst()
     analysis_mode = request.analysis_mode or "verify"
+    job_id = f"analysis-{uuid4().hex[:12]}"
 
     if settings.forensic_demo_mode:
         seed = sha256_text(f"{request.cctv_id}|{request.hls_url}|{request.target_plate or ''}")
@@ -752,7 +866,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         )
 
         return AnalyzeResponse(
-            job_id=f"analysis-{uuid4().hex[:12]}",
+            job_id=job_id,
             cctv_id=request.cctv_id,
             timestamp=timestamp,
             algorithm=build_algorithm_label(settings, "target_hint_only", None, analysis_mode),
@@ -778,6 +892,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
             target_color=request.target_color,
             target_vehicle_type=request.target_vehicle_type,
             plate_candidates=[],
+            vehicle_signature=build_vehicle_signature([], request.target_vehicle_type),
         )
 
     frame_limit = settings.analyze_frame_limit if analysis_mode == "verify" else max(1, min(2, settings.analyze_frame_limit))
@@ -801,6 +916,19 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     dropped = max(0, total_input - passed)
     distinct_labels = sorted(set(labels))
     confidence = round(min(97.0, 55.0 + vehicle_count * 6.0), 1) if vehicle_count else 41.0
+    reid_match_summary = match_vehicle_reid_observations(
+        ocr_inputs or frames[: settings.ocr_frame_limit],
+        {
+            "id": job_id,
+            "observation_id": job_id,
+            "job_id": job_id,
+            "cctv_id": request.cctv_id,
+            "timestamp": timestamp.isoformat(),
+            "vehicle_type_hint": request.target_vehicle_type or (distinct_labels[0] if distinct_labels else None),
+            "vehicle_labels": distinct_labels,
+            "source_frame_count": len(frames),
+        },
+    )
     input_hash, result_hash, chain_hash, prev_hash = build_chain_hash(
         request.cctv_id,
         str(request.hls_url),
@@ -809,7 +937,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
     )
 
     return AnalyzeResponse(
-        job_id=f"analysis-{uuid4().hex[:12]}",
+        job_id=job_id,
         cctv_id=request.cctv_id,
         timestamp=timestamp,
         algorithm=build_algorithm_label(settings, ocr_status, ocr_engine, analysis_mode),
@@ -835,6 +963,7 @@ def analyze_stream(request: AnalyzeRequest) -> AnalyzeResponse:
         target_color=request.target_color,
         target_vehicle_type=request.target_vehicle_type or (distinct_labels[0] if distinct_labels else None),
         plate_candidates=plate_candidates,
+        vehicle_signature=build_vehicle_signature(distinct_labels, request.target_vehicle_type, reid_match_summary),
     )
 
 
@@ -882,6 +1011,18 @@ def build_demo_track_hits(request: TrackRequest, tracking_id: str, cameras: list
                 travel_assessment_label="판단 보류",
                 travel_order=camera.travelOrder,
                 is_route_focus=camera.isRouteFocus,
+                identification_score=camera.identificationScore,
+                identification_grade=camera.identificationGrade,
+                identification_reason=camera.identificationReason,
+                lane_direction_status=camera.laneDirectionStatus,
+                lane_direction_label=camera.laneDirectionLabel,
+                lane_direction_source=camera.laneDirectionSource,
+                delay_risk_score=camera.delayRiskScore,
+                route_deviation_risk=camera.routeDeviationRisk,
+                traffic_congestion_status=camera.trafficCongestionStatus,
+                traffic_congestion_level=camera.trafficCongestionLevel,
+                traffic_congestion_source=camera.trafficCongestionSource,
+                vehicle_signature=build_vehicle_signature([], request.vehicle_type),
             )
         )
     return sort_track_hits_by_route(hits)
@@ -892,8 +1033,14 @@ def has_route_metadata(cameras: list[TrackCamera]) -> bool:
         camera.travelOrder is not None
         or camera.expectedEtaMinutes is not None
         or camera.timeWindowLabel
-        or camera.isRouteFocus
-        for camera in cameras
+            or camera.isRouteFocus
+            or camera.laneDirectionStatus is not None
+            or camera.laneDirectionLabel is not None
+            or camera.delayRiskScore is not None
+            or camera.routeDeviationRisk is not None
+            or camera.trafficCongestionStatus in ("inferred", "verified")
+            or camera.trafficCongestionSource in ("eta_spacing", "external_traffic_api")
+            for camera in cameras
     )
 
 
@@ -916,7 +1063,7 @@ def build_track_message(hit_count: int, cameras: list[TrackCamera], demo: bool =
     action = "생성했습니다" if demo else "찾았습니다"
     prefix = f"{hit_count}건의 {'데모 ' if demo else ''}차량 이동 후보를 {action}"
     if has_route_metadata(cameras):
-        return f"{prefix}. 도로축 순서와 ETA 메타데이터를 보존해 정렬했습니다."
+        return f"{prefix}. 도로축 순서와 ETA, 지연/경로 이탈 메타데이터를 보존해 정렬했습니다."
     return prefix
 
 
@@ -976,6 +1123,18 @@ def build_track_result(request: TrackRequest, tracking_id: str) -> TrackResponse
                 travel_assessment_label="판단 보류",
                 travel_order=camera.travelOrder,
                 is_route_focus=camera.isRouteFocus,
+                identification_score=camera.identificationScore,
+                identification_grade=camera.identificationGrade,
+                identification_reason=camera.identificationReason,
+                lane_direction_status=camera.laneDirectionStatus,
+                lane_direction_label=camera.laneDirectionLabel,
+                lane_direction_source=camera.laneDirectionSource,
+                delay_risk_score=camera.delayRiskScore,
+                route_deviation_risk=camera.routeDeviationRisk,
+                traffic_congestion_status=camera.trafficCongestionStatus,
+                traffic_congestion_level=camera.trafficCongestionLevel,
+                traffic_congestion_source=camera.trafficCongestionSource,
+                vehicle_signature=analysis.vehicle_signature,
             )
         )
         if len(hits) >= settings.track_hit_limit:

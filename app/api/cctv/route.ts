@@ -6,6 +6,7 @@ import { applyOfficialCoordinateOverrides } from '@/lib/official-coordinates';
 import { fetchGimpoItsCctv } from '@/lib/gimpo-its';
 import { fetchIncheonUticCctv } from '@/lib/incheon-utic';
 import { buildNationalItsDedupKey } from '@/lib/national-its';
+import { applyCctvVisionCalibrations } from '@/lib/cctv-vision-calibration';
 import type { CctvItem, CctvRegion, CctvType } from '@/types/cctv';
 
 export const dynamic = 'force-dynamic';
@@ -152,10 +153,11 @@ export async function GET() {
         const normalized = normalizeCctvData(uniqueList);
         const mergedCandidate = [...regionalLocalCctv, ...gimpoOfficialTraffic, ...incheonOfficialTraffic, ...normalized];
         const { items: mergedWithOverrides, summary: overrideSummary } = await applyOfficialCoordinateOverrides(mergedCandidate);
-        const merged = sortCctv(mergedWithOverrides);
+        const { items: mergedWithVisionCalibration, summary: visionCalibrationSummary } = await applyCctvVisionCalibrations(mergedWithOverrides);
+        const merged = sortCctv(mergedWithVisionCalibration);
 
         console.log(
-            `[ITS API] Successfully fetched ${cctvList.length} items, normalized to ${normalized.length} ITS traffic CCTVs. local=${regionalLocalCctv.length} gimpoOfficial=${gimpoOfficialTraffic.length} incheonOfficial=${incheonOfficialTraffic.length} merged=${merged.length} officialOverrides=${overrideSummary.appliedOverrides}/${overrideSummary.totalOverrides}`
+            `[ITS API] Successfully fetched ${cctvList.length} items, normalized to ${normalized.length} ITS traffic CCTVs. local=${regionalLocalCctv.length} gimpoOfficial=${gimpoOfficialTraffic.length} incheonOfficial=${incheonOfficialTraffic.length} merged=${merged.length} officialOverrides=${overrideSummary.appliedOverrides}/${overrideSummary.totalOverrides} visionCalibrations=${visionCalibrationSummary.appliedCalibrations}/${visionCalibrationSummary.totalCalibrations}`
         );
         return NextResponse.json(merged, {
             headers: {

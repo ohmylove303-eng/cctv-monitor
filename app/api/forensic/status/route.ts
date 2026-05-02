@@ -13,6 +13,13 @@ export async function GET() {
         httpStatus: probe.httpStatus,
         mode: probe.mode,
         ocr: probe.ocr,
+        vehicleReference: probe.vehicleReference ?? null,
+        vehicleVmmrReadiness: probe.vehicleVmmrReadiness ?? null,
+        vehicleReidReadiness: probe.vehicleReidReadiness ?? null,
+        vehicleReidRuntime: probe.vehicleReidRuntime ?? null,
+        vehicleReidRuntimeBacktest: probe.vehicleReidRuntimeBacktest ?? null,
+        trackingStore: probe.trackingStore ?? null,
+        executionHarness: probe.executionHarness ?? null,
         message: probe.message,
     });
 }

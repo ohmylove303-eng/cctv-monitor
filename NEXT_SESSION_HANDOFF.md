@@ -49,6 +49,7 @@
 - 집중 감시 후보는 식별 가능성/축 정렬 점수로 선별하되 표시 순서는 이동 순서로 정렬한다.
 - Render YOLO 백엔드는 연결되어 있고 `/`에서 `{"status":"ok","mode":"yolo"}` 형태로 응답한다.
 - EasyOCR hook/diagnostics는 연결되어 있지만 실전 OCR 정확도는 계속 검증 대상이다.
+- 현재 실행 결과 한눈에 보기: [`data/execution-status-at-a-glance.md`](/Users/jungsunghoon/cctv-monitor/data/execution-status-at-a-glance.md)
 
 ## 운영 점검 명령
 
@@ -58,6 +59,7 @@ npm run build
 npm run test:regression:national-its
 npm run monitor:production-health
 npm run monitor:production-health:json
+npm run status:at-a-glance
 ```
 
 최근 운영 집계 기준:
@@ -74,18 +76,25 @@ npm run monitor:production-health:json
 1. 방범/소방 근사 좌표 227대의 공식 좌표 승격
    - 원칙: 행안부/기관 원본 관리번호 또는 높은 precision 매칭 없이는 자동 승격 금지.
    - 상태: 운영 노출은 official/verified 중심, approximate는 숨김/검토 상태 유지.
+   - 보강됨: `npm run coordinates:review-next`와 `npm run test:coordinates-review`가 현재 `official-cctv-coordinates.csv`의 active/review_needed/pending 상태와 수동 검토 우선순위를 요약한다.
+   - 최근 로컬 CSV 기준: active `29`, review_needed `177`, pending `54`, blockedFromRuntime `231`, autoPromotableRows `0`.
 
 2. ReID 임베딩 기반 동일 차량 재식별
    - 현재: 도로축/ETA/OCR/색상/차종 증거 기반 후보 정렬.
-   - 미완성: 차량 외형 임베딩을 저장하고 다중 CCTV 간 동일 차량 유사도를 계산하는 엔진.
+   - 보강됨: `vehicle-reid-readiness.json`, validator, fixture, `test:vehicle-reference` 하네스, `/healthz.vehicle_reid_readiness`, UI `ReID 동일차량` 상태 카드가 추가됐다.
+   - 현재: active ReID model `0`, sameVehicleReidReady `false`.
+   - 미완성: 차량 외형 임베딩 추론기 저장, 다중 CCTV 간 동일 차량 유사도 계산 엔진, 실환경 ReID 백테스트.
 
 3. OCR/ALPR 실전 정확도 검증
    - 현재: EasyOCR lazy-load와 후보 진단 UI/응답 스키마 연결.
+   - 보강됨: `ocr-alpr-backtest-readiness.json`, validator, fixture, `test:ocr-backtest` 하네스가 추가됐다.
    - 미완성: 야간, 역광, 원거리, 저해상도 구간별 품질 스코어와 PaddleOCR/ALPR 전용 엔진 비교.
 
 4. 운영 추적 저장소
    - 현재: 백엔드 내부 store와 optional persistence 중심.
-   - 미완성: Redis/Postgres 같은 외부 큐/DB 기반 장기 추적 저장과 재시작 내구성.
+   - 보강됨: `/healthz.tracking_store`와 프론트 `/api/health.services.forensic.trackingStore`에 `memory/json_file/postgres`, requested backend, durable, persisted_results, external_db 상태를 노출한다.
+   - 보강됨: `TRACK_STORE_BACKEND=postgres` + `TRACK_STORE_DSN`일 때 Postgres 어댑터를 우선 시도하고, 실패하면 기존 json_file/memory fallback으로 내려간다.
+   - 미완성: Redis/Postgres 같은 외부 큐/DB 기반 장기 추적 저장의 운영 검증과 스케일링.
 
 5. 경로 감시 고도화
    - 현재: 도로축, 출발지, 도착지, 방향, 속도, ETA 기반 집중 후보.
@@ -93,11 +102,10 @@ npm run monitor:production-health:json
 
 ## 다음 작업 추천 순서
 
-1. `lib/route-monitoring.ts`에 ETA 이동 순서 회귀 테스트 추가.
-2. `forensic-api` OCR 상태를 운영 UI에서 한 줄로 더 명확히 표시.
-3. ReID를 바로 만들기보다 `vehicle_signature` 계약부터 추가.
-4. approximate 좌표는 자동 승격하지 말고 `review_needed` 리포트 생성 스크립트부터 만든다.
-5. Render/프론트 운영 점검은 `monitor:production-health` 결과가 clean인지 먼저 본다.
+1. `data/execution-status-at-a-glance.md`를 먼저 보고 현재 상태를 빠르게 훑는다.
+2. approximate 좌표는 `coordinates:review-next` 결과에서 P1/P2부터 수동 검토하고, 자동 승격은 계속 금지한다.
+3. ReID/OCR는 실데이터가 들어올 때만 active 쪽으로 올린다.
+4. Render/프론트 운영 점검은 `monitor:production-health` 결과가 clean인지 먼저 본다.
 
 ## 작업 시 주의
 

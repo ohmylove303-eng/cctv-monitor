@@ -1,0 +1,41 @@
+reviewStatus,cctvId,cctvName,region,visionTier,identificationUse,approachDistanceMeters,resolutionWidth,resolutionHeight,directionCalibrationStatus,lineZoneForward,lineZoneReverse,evidenceSource,verificationMethod,sampleCount,datasetPath,reviewer,reviewedAt,notes
+review_needed,GTIC-X-100402011,스마트교차로_강화.검단방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-102802102,스마트교차로_강화.김포시청방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-101901068,스마트교차로_강화.서울방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-103203118,스마트교차로_강화.서울방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-100102002,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-101302046,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-100202005,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-100403012,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-101902069,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-102003074,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-102103078,스마트교차로_강화.통진방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-101702062,스마트교차로_강화방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-100801025,스마트교차로_강화방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-102402088,스마트교차로_강화방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-102303085,스마트교차로_걸포북변역방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,GTIC-X-103403124,스마트교차로_걸포IC방향,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=86; reason=near-token:교차로; structure-token:교; source:gimpo-cross
+review_needed,IUTIC-L020007,가좌IC교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020037,도화초교사거리,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:사거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020042,루원교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020051,문학경기장정문교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020059,백석교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020083,석남1고가교입구교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020091,소래대교입구,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:입구; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020100,송도-국제학교 삼거리#2,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:삼거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020095,송도3교교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020096,송도5교사거리,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:사거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020162,옹암교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020175,인천교삼거리,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:삼거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020176,인천교펌프장입구사거리,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:사거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020194,중봉교차로,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:교차로; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020202,청라-문점교 삼거리#2,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:삼거리; structure-token:교; source:incheon-utic
+review_needed,IUTIC-L020222,효성교사거리,인천,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=82; reason=near-token:사거리; structure-token:교; source:incheon-utic
+review_needed,GTIC-CCTV016,고정교차로,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:교차로; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV003,구래역사거리,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:사거리; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV013,금빛수로1교사거리,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:사거리; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV019,대명교차로,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:교차로; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV034,대명초교사거리,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:사거리; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV018,대명항교차로(초지대교앞),김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:교차로; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV027,발산교차로,김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:교차로; structure-token:교; source:gimpo-main
+review_needed,GTIC-CCTV039,북변IC(북변교),김포,,,,,,,,,,,,,,,candidate=tier_a_review_candidate; score=74; reason=near-token:ic; structure-token:교; source:gimpo-main

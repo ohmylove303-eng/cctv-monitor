@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-05-01T14:12:16.396Z",
+  "candidatesPath": "/tmp/reid-night-candidates.csv",
+  "sampleDir": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-05-01T14-12-15-076Z",
+  "framesPerCamera": 1,
+  "frameIntervalSec": 1,
+  "summary": {
+    "attempted": 2,
+    "captured": 2,
+    "capturedFrames": 2,
+    "failed": 0
+  },
+  "samples": [
+    {
+      "rank": 23,
+      "cctvId": "IUTIC-L020091",
+      "cctvName": "소래대교입구",
+      "region": "인천",
+      "source": "incheon-utic",
+      "suggestedReviewTier": "tier_a_review_candidate",
+      "streamUrl": "https://cctv.fitic.go.kr/cctv/L1022.stream/playlist.m3u8",
+      "captureOk": true,
+      "outputPath": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-05-01T14-12-15-076Z/23_IUTIC-L020091_f01.jpg",
+      "frames": [
+        {
+          "outputPath": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-05-01T14-12-15-076Z/23_IUTIC-L020091_f01.jpg",
+          "width": 960,
+          "height": 540
+        }
+      ],
+      "capturedFrames": 1,
+      "width": 960,
+      "height": 540,
+      "error": null
+    },
+    {
+      "rank": 40,
+      "cctvId": "GTIC-CCTV039",
+      "cctvName": "북변IC(북변교)",
+      "region": "김포",
+      "source": "gimpo-its-main",
+      "suggestedReviewTier": "tier_a_review_candidate",
+      "streamUrl": "https://gimpo.cctvstream.net:8443/c038/playlist.m3u8",
+      "captureOk": true,
+      "outputPath": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-05-01T14-12-15-076Z/40_GTIC-CCTV039_f01.jpg",
+      "frames": [
+        {
+          "outputPath": "/Users/jungsunghoon/cctv-monitor/.vision-calibration-samples/2026-05-01T14-12-15-076Z/40_GTIC-CCTV039_f01.jpg",
+          "width": 1920,
+          "height": 1080
+        }
+      ],
+      "capturedFrames": 1,
+      "width": 1920,
+      "height": 1080,
+      "error": null
+    }
+  ]
+}

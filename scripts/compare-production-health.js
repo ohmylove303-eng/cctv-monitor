@@ -152,6 +152,7 @@ function resolveCoordinateQuality(item) {
 
 function buildSummary(healthPayload, cctvItems) {
     const service = healthPayload?.services?.cctv ?? {};
+    const forensicService = healthPayload?.services?.forensic ?? {};
     const trafficItems = cctvItems.filter((item) => item.type === 'traffic');
 
     return {
@@ -166,6 +167,42 @@ function buildSummary(healthPayload, cctvItems) {
         trafficBySource: sortObject(countBy(trafficItems, (item) => item.source ?? 'unknown')),
         officialOverrideCount: service.officialOverrideCount ?? null,
         coordinateInputSummary: service.coordinateInputSummary ?? null,
+        forensic: {
+            status: forensicService.status ?? null,
+            configured: forensicService.configured ?? null,
+            reachable: forensicService.reachable ?? null,
+            providerMode: forensicService.mode ?? null,
+            ocrStatus: forensicService.ocr?.status ?? null,
+            ocrBacktestStatus: forensicService.ocr?.backtest_status ?? null,
+            ocrBacktestActiveReports: forensicService.ocr?.backtest_active_report_count ?? null,
+            ocrBacktestRuntimeIntegrated: forensicService.ocr?.backtest_runtime_integrated ?? null,
+            vehicleReferenceStatus: forensicService.vehicleReference?.status ?? null,
+            vehicleReferenceEntries: forensicService.vehicleReference?.entries ?? null,
+            vehicleVmmrReadinessStatus: forensicService.vehicleVmmrReadiness?.status ?? null,
+            vehicleVmmrActiveModels: forensicService.vehicleVmmrReadiness?.active_models ?? null,
+            fineGrainedModelReady: forensicService.vehicleVmmrReadiness?.fine_grained_model_ready ?? null,
+            vehicleReidReadinessStatus: forensicService.vehicleReidReadiness?.status ?? null,
+            vehicleReidActiveModels: forensicService.vehicleReidReadiness?.active_models ?? null,
+            sameVehicleReidReady: forensicService.vehicleReidReadiness?.same_vehicle_reid_ready ?? null,
+            vehicleReidRuntimeStatus: forensicService.vehicleReidRuntime?.status ?? null,
+            vehicleReidRuntimeBackend: forensicService.vehicleReidRuntime?.backend ?? null,
+            vehicleReidRuntimeGalleryEntries: forensicService.vehicleReidRuntime?.gallery_entries ?? null,
+            vehicleReidRuntimeMatchThreshold: forensicService.vehicleReidRuntime?.match_threshold ?? null,
+            vehicleReidRuntimeBacktestStatus: forensicService.vehicleReidRuntimeBacktest?.status ?? null,
+            vehicleReidRuntimeBacktestActiveReports: forensicService.vehicleReidRuntimeBacktest?.active_report_count ?? null,
+            vehicleReidRuntimeBacktestRuntimeIntegrated: forensicService.vehicleReidRuntimeBacktest?.runtime_integrated ?? null,
+            vehicleReidRuntimeBacktestMatchSuccessRate: forensicService.vehicleReidRuntimeBacktest?.match_success_rate ?? null,
+            vehicleReidRuntimeBacktestFalsePositiveRate: forensicService.vehicleReidRuntimeBacktest?.false_positive_rate ?? null,
+            vehicleReidRuntimeBacktestGalleryGrowth: forensicService.vehicleReidRuntimeBacktest?.gallery_growth ?? null,
+            trackingStoreBackend: forensicService.trackingStore?.backend ?? null,
+            trackingStoreRequestedBackend: forensicService.trackingStore?.requested_backend ?? null,
+            trackingStoreDsnConfigured: forensicService.trackingStore?.dsn_configured ?? null,
+            trackingStoreTable: forensicService.trackingStore?.table ?? null,
+            trackingStoreDurable: forensicService.trackingStore?.durable ?? null,
+            trackingStoreExternalDb: forensicService.trackingStore?.external_db ?? null,
+            executionHarnessStage: forensicService.executionHarness?.current_stage ?? null,
+            executionHarnessModel: forensicService.executionHarness?.current_stage_model ?? null,
+        },
     };
 }
 
@@ -370,6 +407,7 @@ async function run() {
     printCounter('byCoordinateQuality', summary.byCoordinateQuality);
     printCounter('bySource', summary.bySource);
     printCounter('trafficBySource', summary.trafficBySource);
+    console.log(`forensic: ${JSON.stringify(summary.forensic)}`);
 
     if (previous) {
         console.log(`snapshot: ${args.snapshot}`);

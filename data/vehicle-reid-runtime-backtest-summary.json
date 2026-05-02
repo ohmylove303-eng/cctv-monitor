@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_reid_runtime_backtest_summary_v1",
+  "status": "synthetic_validated",
+  "backend": "baseline",
+  "matchThreshold": 0.92,
+  "totalCases": 3,
+  "expectedPositiveCases": 1,
+  "expectedNegativeCases": 2,
+  "truePositiveMatches": 1,
+  "trueNegativeUnmatched": 2,
+  "falsePositiveMatches": 0,
+  "falseNegativeUnmatched": 0,
+  "matchSuccessRate": 1.0,
+  "falsePositiveRate": 0.0,
+  "galleryEntriesAfterRun": 3,
+  "cases": [
+    {
+      "id": "first_seen_seed",
+      "expected": "unmatched",
+      "actual": "unmatched",
+      "score": null
+    },
+    {
+      "id": "cross_camera_repeat",
+      "expected": "matched",
+      "actual": "matched",
+      "score": 0.9951667189598083
+    },
+    {
+      "id": "different_vehicle_probe",
+      "expected": "unmatched",
+      "actual": "unmatched",
+      "score": null
+    }
+  ],
+  "notes": [
+    "Synthetic baseline ReID backtest only; not a reviewed production activation report.",
+    "Runtime gate remains separate from readiness and real-world cross-camera validation."
+  ]
+}

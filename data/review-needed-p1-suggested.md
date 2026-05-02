@@ -1,9 +1,9 @@
 # P1 Suggested Approvals
 
-- generatedAt: 2026-03-21T14:01:09.880Z
-- totalSites: 13
+- generatedAt: 2026-05-01T15:27:53.812Z
+- totalSites: 10
 - suggestedSites: 0
-- totalRows: 35
+- totalRows: 27
 - suggestedRows: 0
 
 ## Rule

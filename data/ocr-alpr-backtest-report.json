@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "ocr_alpr_backtest_report_v1",
+  "active_report_count": 0,
+  "policy": {
+    "noRuntimeAccuracyApprovalWithoutReviewedReport": true,
+    "requiredBuckets": [
+      "night",
+      "backlight",
+      "long_distance",
+      "low_resolution"
+    ],
+    "minSamplesPerBucket": 30,
+    "exactPlateAccuracyThreshold": 0.85,
+    "candidateRecallThreshold": 0.9,
+    "falsePositiveRateMax": 0.05
+  },
+  "reports": [],
+  "engineComparisons": []
+}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "verified_vehicle_reference_v1",
+  "policy": {
+    "noInferenceWithoutEvidence": true,
+    "minimumEvidence": "verified_dataset_or_manual_review",
+    "notes": "Do not infer make, model, trim, domestic/import status, or SUV/sedan subtype from generic YOLO labels alone."
+  },
+  "entries": []
+}

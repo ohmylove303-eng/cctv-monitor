@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "taxonomy": "vehicle_reid_readiness_v1",
+  "policy": {
+    "noIdentityMatchWithoutValidatedEmbedding": true,
+    "activationMetric": "top1Accuracy",
+    "activationThreshold": 0.85,
+    "maxFalsePositiveRate": 0.05,
+    "notes": "fixture_only"
+  },
+  "datasets": [
+    {
+      "id": "fixture-reid-dataset-001",
+      "fixture": true,
+      "sourceName": "fixture-only",
+      "sourceType": "manual_fixture",
+      "licenseStatus": "approved",
+      "reviewStatus": "approved",
+      "identityCount": 40,
+      "imageCount": 160,
+      "cameraCount": 4,
+      "evidence": {
+        "datasetPath": "/fixture/vehicle-reid",
+        "reviewer": "fixture-auditor",
+        "reviewedAt": "2026-04-29"
+      }
+    }
+  ],
+  "modelReports": [
+    {
+      "id": "fixture-reid-model-001",
+      "fixture": true,
+      "status": "active",
+      "modelFamily": "fixture-embedding",
+      "weightsPath": "/fixture/runs/vehicle-reid/best.pt",
+      "embeddingDimension": 512,
+      "datasetIds": ["fixture-reid-dataset-001"],
+      "metrics": {
+        "top1Accuracy": 0.91,
+        "meanAveragePrecision": 0.82,
+        "crossCameraAccuracy": 0.88,
+        "precision": 0.9,
+        "recall": 0.87,
+        "falsePositiveRate": 0.03
+      },
+      "evidence": {
+        "reportPath": "/fixture/reports/reid-backtest.json",
+        "reviewer": "fixture-auditor",
+        "reviewedAt": "2026-04-29"
+      }
+    }
+  ]
+}
