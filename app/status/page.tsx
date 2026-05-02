@@ -410,6 +410,24 @@ export default async function StatusPage() {
                     >
                         메인으로
                     </Link>
+                    <Link
+                        href="/coordinates-review"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 999,
+                            padding: '10px 14px',
+                            textDecoration: 'none',
+                            color: 'white',
+                            background: 'rgba(34,197,94,0.16)',
+                            border: '1px solid rgba(34,197,94,0.28)',
+                            fontWeight: 700,
+                            fontSize: 13,
+                        }}
+                    >
+                        좌표 승인 큐
+                    </Link>
                     <div style={{ padding: '10px 14px', borderRadius: 999, border: '1px solid rgba(148,163,184,0.2)', color: '#cbd5e1', fontSize: 13 }}>
                         캡처용 화면 · stage-by-stage overview
                     </div>

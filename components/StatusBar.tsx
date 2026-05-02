@@ -87,9 +87,28 @@ export default function StatusBar({ allItems }: Props) {
                         color: 'var(--neon-blue)',
                         textDecoration: 'none',
                     }}
-                >
+                    >
                     <ExternalLink size={12} />
                     실제 검증
+                </Link>
+                <Link
+                    href="/coordinates-review"
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(34,197,94,0.22)',
+                        background: 'rgba(34,197,94,0.08)',
+                        color: '#86efac',
+                        textDecoration: 'none',
+                    }}
+                >
+                    <ExternalLink size={12} />
+                    좌표 승인
                 </Link>
             </div>
 
